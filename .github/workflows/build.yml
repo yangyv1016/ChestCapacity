@@ -34,13 +34,8 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
 
-      # 上传 jar 作为 workflow 产物
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ChestCapacity-${{ github.ref_name }}
-          path: build/libs/ChestCapacity-*.jar
-          if-no-files-found: error
+      - name: Verify jar
+        run: ls -lh build/libs/
 
       # tag push 时自动创建 GitHub Release
       - name: Create Release
@@ -48,4 +43,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/libs/ChestCapacity-*.jar
-          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      # 常规 push 上传 jar 作为 Artifact
+      - name: Upload Artifact
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChestCapacity-${{ github.ref_name }}
+          path: build/libs/ChestCapacity-*.jar
+          if-no-files-found: error
