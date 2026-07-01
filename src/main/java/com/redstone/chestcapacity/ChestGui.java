@@ -41,6 +41,8 @@ public final class ChestGui {
         int maxPage = data.pages() - 1;
         page = Math.max(0, Math.min(page, maxPage));
 
+        store.beginView(chestKey);   // 登记查看者, 打开期间搬运暂停(翻页会先开新页再关旧页, 计数不归零)
+
         ChestGuiHolder holder = new ChestGuiHolder(data, chestKey, page);
         Component title = PluginConfig.text(config.guiTitle
                 .replace("%page%", Integer.toString(page + 1))
@@ -114,9 +116,10 @@ public final class ChestGui {
         open(player, holder.data(), holder.chestKey(), target);
     }
 
-    /** 关闭时回写 + 刷新悬浮文字。 */
+    /** 关闭时回写 + 刷新悬浮文字 + 注销查看者(恢复搬运)。 */
     public void onClose(ChestGuiHolder holder) {
         writeBack(holder);
+        store.endView(holder.chestKey());   // 注销查看者; 翻页时新页已先 +1, 此处 -1 后计数仍 >0, 搬运不会在翻页缝隙恢复
         var block = VirtualStore.blockOf(holder.chestKey());
         if (block != null) {
             ChestData d = holder.data();

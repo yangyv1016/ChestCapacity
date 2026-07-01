@@ -67,6 +67,7 @@ public final class TransferService {
     private void tick() {
         int target = config.keepFilledSlots;
         for (Map.Entry<String, ChestData> e : new ArrayList<>(store.entries())) {
+            if (store.isViewed(e.getKey())) continue;          // GUI 打开中, 暂停搬运避免回写吞物品
             Block block = VirtualStore.blockOf(e.getKey());
             if (block == null) continue;                       // 世界未加载
             if (!block.getWorld().isChunkLoaded(

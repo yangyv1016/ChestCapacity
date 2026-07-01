@@ -31,6 +31,12 @@ public final class VirtualStore {
     private final File dataFile;
     private final Map<String, ChestData> byKey = new HashMap<>();
 
+    // 正在被 GUI 查看/编辑的箱子的引用计数（key -> 打开中的界面数）。
+    // 存在意义：GUI 回写是"整片快照覆盖"，与 TransferService 的实时搬运是两个写者，
+    // 若在 GUI 打开期间搬运继续写入 slots，关闭时的旧快照会覆盖掉这些并发搬入的物品。
+    // 因此打开期间对该箱子暂停搬运，让快照保持权威。计数支持翻页(先开新再关旧)与多人查看。
+    private final Map<String, Integer> viewers = new HashMap<>();
+
     public VirtualStore(Plugin plugin) {
         this.plugin = plugin;
         this.dataFile = new File(plugin.getDataFolder(), "chests.yml");
@@ -82,6 +88,26 @@ public final class VirtualStore {
 
     public boolean has(String key) {
         return byKey.containsKey(key);
+    }
+
+    // ---- GUI 会话锁：打开期间暂停该箱子的搬运，避免快照回写吞掉并发搬入的物品 ----
+
+    /** GUI 打开时登记一个查看者。翻页时"先开新页(+1)再关旧页(-1)"，计数不会中途归零。 */
+    public void beginView(String key) {
+        viewers.merge(key, 1, Integer::sum);
+    }
+
+    /** GUI 关闭/翻页离开时注销一个查看者，归零则移除键。 */
+    public void endView(String key) {
+        Integer n = viewers.get(key);
+        if (n == null) return;
+        if (n <= 1) viewers.remove(key);
+        else viewers.put(key, n - 1);
+    }
+
+    /** 该箱子当前是否正被 GUI 查看（搬运应跳过它）。 */
+    public boolean isViewed(String key) {
+        return viewers.containsKey(key);
     }
 
     /** 放置扩容箱时登记。已存在则返回旧数据（不覆盖，避免误清空）。 */
