@@ -1,3 +1,10 @@
+<div align="center">
+  <img src="logo1024.jpg" alt="Astra Tale Studio" width="200">
+  <p><strong>本插件由 Astra Tale Studio 使用 Claude 辅助开发</strong></p>
+</div>
+
+---
+
 # ChestCapacity — 可扩容箱子插件（Paper 1.21）
 
 [English](#english) | [中文](#中文)
