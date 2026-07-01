@@ -8,6 +8,11 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * 分页大容量 GUI。把 ChestData 的虚拟存储切成每页 45 格来展示。
  *
@@ -15,8 +20,13 @@ import org.bukkit.inventory.meta.ItemMeta;
  *   行 0..4 (槽 0..44)  = 当前页内容，映射到 data.slots[page*45 + i]
  *   行 5   (槽 45..53)  = 导航行：45 上一页, 49 页码, 53 下一页, 其余玻璃板填充
  *
- * 回写策略：不做实时逐格监听，改为在“翻页”和“关闭”两个时机把可编辑区
- * 整片刷回 ChestData。这样点击事件只需拦截导航行，内容区放行原版拖拽，手感自然。
+ * 实时镜像模型（v1.0.3 起）：
+ *   data.slots 是唯一权威，GUI 界面只是它"当前页"的一面实时镜像。
+ *   每个搬运 tick 对打开着的界面做一次有序对账（见 TransferService.tick）：
+ *     1. absorbEdits : 界面 --writeBack--> data   （玩家存/取即时入账）
+ *     2. 搬运照常跑   : 物理27格 <---> data        （漏斗喂的货下沉进来）
+ *     3. refreshViews: data --renderPage--> 界面   （玩家看到堆叠增减 = 流入流出）
+ *   因为对账串行且都在主线程，tick 结尾界面与 data 恒一致，不存在"过期快照覆盖"。
  */
 public final class ChestGui {
 
@@ -30,6 +40,10 @@ public final class ChestGui {
     private final VirtualStore store;
     private final HologramManager holograms;
 
+    // 打开中的界面注册表：箱子坐标键 -> 正在查看它的 holder 集合（支持翻页瞬间与多人同看）。
+    // 搬运 tick 靠它定位"某箱子当前有哪些界面要吸收编辑/回显"。
+    private final Map<String, Set<ChestGuiHolder>> openViews = new HashMap<>();
+
     public ChestGui(PluginConfig config, VirtualStore store, HologramManager holograms) {
         this.config = config;
         this.store = store;
@@ -41,8 +55,6 @@ public final class ChestGui {
         int maxPage = data.pages() - 1;
         page = Math.max(0, Math.min(page, maxPage));
 
-        store.beginView(chestKey);   // 登记查看者, 打开期间搬运暂停(翻页会先开新页再关旧页, 计数不归零)
-
         ChestGuiHolder holder = new ChestGuiHolder(data, chestKey, page);
         Component title = PluginConfig.text(config.guiTitle
                 .replace("%page%", Integer.toString(page + 1))
@@ -52,6 +64,7 @@ public final class ChestGui {
 
         renderPage(inv, data, page);
         renderNav(inv, page, data.pages());
+        openViews.computeIfAbsent(chestKey, k -> new HashSet<>()).add(holder); // 登记, 让搬运 tick 能对账它
         player.openInventory(inv);
     }
 
@@ -116,14 +129,46 @@ public final class ChestGui {
         open(player, holder.data(), holder.chestKey(), target);
     }
 
-    /** 关闭时回写 + 刷新悬浮文字 + 注销查看者(恢复搬运)。 */
+    /** 关闭时回写 + 注销界面 + 刷新悬浮文字。 */
     public void onClose(ChestGuiHolder holder) {
         writeBack(holder);
-        store.endView(holder.chestKey());   // 注销查看者; 翻页时新页已先 +1, 此处 -1 后计数仍 >0, 搬运不会在翻页缝隙恢复
+        Set<ChestGuiHolder> set = openViews.get(holder.chestKey());
+        if (set != null) {
+            set.remove(holder);
+            if (set.isEmpty()) openViews.remove(holder.chestKey());
+        }
         var block = VirtualStore.blockOf(holder.chestKey());
         if (block != null) {
             ChestData d = holder.data();
             holograms.refresh(block, d.usedStacks(), d.capacity(), d.pages());
+        }
+    }
+
+    /** 该箱子当前是否有人打开着界面（搬运 tick 用来决定是否需要对账）。 */
+    public boolean hasOpenView(String chestKey) {
+        return openViews.containsKey(chestKey);
+    }
+
+    /**
+     * 对账第一步：把该箱子所有打开界面的编辑吸收进 data（玩家存/取即时入账）。
+     * 在搬运之前调用，保证玩家动作先落到权威数据，再参与本 tick 的搬运。
+     */
+    public void absorbEdits(String chestKey) {
+        Set<ChestGuiHolder> set = openViews.get(chestKey);
+        if (set == null) return;
+        for (ChestGuiHolder holder : set) writeBack(holder);
+    }
+
+    /**
+     * 对账第三步：把 data 的最新内容回显到该箱子所有打开界面（玩家看到堆叠增减 = 流入流出）。
+     * 在搬运之后调用。仅刷内容区(0..44)，导航行不动。
+     */
+    public void refreshViews(String chestKey) {
+        Set<ChestGuiHolder> set = openViews.get(chestKey);
+        if (set == null) return;
+        for (ChestGuiHolder holder : set) {
+            Inventory inv = holder.getInventory();
+            if (inv != null) renderPage(inv, holder.data(), holder.page());
         }
     }
 

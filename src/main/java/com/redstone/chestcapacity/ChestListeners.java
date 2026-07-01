@@ -81,6 +81,7 @@ public final class ChestListeners implements Listener {
     public void onInteract(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;          // 只处理主手一次
         if (!event.getAction().isRightClick()) return;
+        if (event.getPlayer().isSneaking()) return;                 // 潜行右键放行: 让玩家能贴着箱子放漏斗/方块, 不抢开 GUI
         Block block = event.getClickedBlock();
         if (block == null || block.getType() != Material.CHEST) return;
 

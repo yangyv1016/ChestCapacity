@@ -39,15 +39,17 @@ public final class TransferService {
     private final PluginConfig config;
     private final VirtualStore store;
     private final HologramManager holograms;
+    private final ChestGui gui;   // 用于对打开着的界面做"吸收编辑 -> 搬运 -> 回显"三步对账
 
     private BukkitTask task;
 
     public TransferService(Plugin plugin, PluginConfig config,
-                           VirtualStore store, HologramManager holograms) {
+                           VirtualStore store, HologramManager holograms, ChestGui gui) {
         this.plugin = plugin;
         this.config = config;
         this.store = store;
         this.holograms = holograms;
+        this.gui = gui;
     }
 
     public void start() {
@@ -63,21 +65,34 @@ public final class TransferService {
         if (task != null) { task.cancel(); task = null; }
     }
 
-    /** 一轮扫描：遍历所有登记箱子，各自向目标水位靠拢一步。 */
+    /**
+     * 一轮扫描：遍历所有登记箱子，各自向目标水位靠拢一步。
+     *
+     * 对有人打开界面的箱子，围绕搬运做三步对账，实现"边看边流动"：
+     *   1. absorbEdits : 先把玩家在界面里的存/取写回 data（玩家动作即时入账）
+     *   2. balanceOne  : 照常搬运，物理27格与 data 互通（漏斗喂的货下沉进来）
+     *   3. refreshViews: 把 data 最新内容回显到界面（玩家看到堆叠增减 = 流入流出）
+     * 三步串行且同在主线程，tick 结尾界面与 data 恒一致，不存在过期快照覆盖。
+     */
     private void tick() {
         int target = config.keepFilledSlots;
         for (Map.Entry<String, ChestData> e : new ArrayList<>(store.entries())) {
-            if (store.isViewed(e.getKey())) continue;          // GUI 打开中, 暂停搬运避免回写吞物品
-            Block block = VirtualStore.blockOf(e.getKey());
+            String key = e.getKey();
+            Block block = VirtualStore.blockOf(key);
             if (block == null) continue;                       // 世界未加载
             if (!block.getWorld().isChunkLoaded(
                     block.getX() >> 4, block.getZ() >> 4)) continue;  // 区块未加载, 跳过
             BlockState state = block.getState(false);
             if (!(state instanceof Chest chest)) continue;     // 已不是箱子(被换走)
-            if (balanceOne(chest.getInventory(), e.getValue(), target)) {
-                ChestData d = e.getValue();
-                holograms.refresh(block, d.usedStacks(), d.capacity(), d.pages());
-            }
+
+            boolean viewed = gui.hasOpenView(key);
+            if (viewed) gui.absorbEdits(key);                  // 1. 吸收玩家编辑
+
+            ChestData d = e.getValue();
+            boolean changed = balanceOne(chest.getInventory(), d, target); // 2. 搬运
+
+            if (viewed) gui.refreshViews(key);                 // 3. 回显给玩家(即便本 tick 没搬也刷, 反映其他来源改动)
+            if (changed) holograms.refresh(block, d.usedStacks(), d.capacity(), d.pages());
         }
     }
 
