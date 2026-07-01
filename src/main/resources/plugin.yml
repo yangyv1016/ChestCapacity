@@ -1,0 +1,24 @@
+name: ChestCapacity
+version: '${version}'
+main: com.redstone.chestcapacity.ChestCapacityPlugin
+api-version: '1.21'
+authors: [redstone]
+description: 可扩容箱子，物理27格做红石接口，扩容存储走虚拟仓库，插件按水位缓冲搬运，面向红石服。
+
+commands:
+  chestcap:
+    description: 发放/查看/调整扩容箱子。日常靠放置+悬停+右键GUI，指令仅用于发放和调整。
+    usage: |-
+      /chestcap give <页数> [数量]  获得扩容箱子物品(放下即生效)
+      /chestcap get                 查看手持扩容箱的容量
+      /chestcap set <页数>          调整手持扩容箱的容量(页数)
+    aliases: [cc, chestcapacity]
+    permission: chestcapacity.command
+
+permissions:
+  chestcapacity.command:
+    description: 允许使用 /chestcap 指令。
+    default: op
+  chestcapacity.use:
+    description: 允许打开与使用扩容箱子。
+    default: true

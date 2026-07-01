@@ -1,0 +1,14 @@
+# 构建产物
+build/
+.gradle/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Gradle 分发包（体积大，不入库；wrapper 会按 properties 自行获取）
+gradle/wrapper/*.zip
+
+# 系统
+*.log
