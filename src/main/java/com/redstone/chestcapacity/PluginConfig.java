@@ -44,6 +44,8 @@ public final class PluginConfig {
     public final String guiNextPage;
     public final String guiPageIndicator;
     public final boolean guiFiller;
+    public final String guiVoidOn;    // 溢出销毁按钮: 已开启态文案
+    public final String guiVoidOff;   // 溢出销毁按钮: 已关闭态文案
 
     // 物品显示
     private final String itemName;
@@ -75,6 +77,10 @@ public final class PluginConfig {
         this.guiNextPage = c.getString("gui.next-page", "&a下一页 »");
         this.guiPageIndicator = c.getString("gui.page-indicator", "&e第 %page% / %pages% 页");
         this.guiFiller = c.getBoolean("gui.filler", true);
+        this.guiVoidOn = c.getString("gui.void-overflow-on",
+                "&c溢出销毁: 开\n&7虚拟仓库满后, 搬不下的溢出物品\n&7将被直接删除(防红石堵塞)。\n&e点击关闭");
+        this.guiVoidOff = c.getString("gui.void-overflow-off",
+                "&a溢出销毁: 关\n&7虚拟仓库满后, 物理格保留物品\n&7(可能回堵漏斗)。\n&e点击开启");
 
         this.itemName = c.getString("item.name", "&6扩容箱子");
         this.itemLore = c.getStringList("item.lore");
@@ -118,6 +124,19 @@ public final class PluginConfig {
     private String fillItem(String s, int pages) {
         return s.replace("%pages%", Integer.toString(pages))
                 .replace("%slots%", Integer.toString(pages * SLOTS_PER_PAGE));
+    }
+
+    /** 多行文案(\n 分隔)的首行作为显示名。供 GUI 按钮用。 */
+    public static Component firstLine(String multiline) {
+        return text(multiline.split("\n", -1)[0]);
+    }
+
+    /** 取多行文案(\n 分隔)除首行外的其余行作为 lore（可能为空列表）。 */
+    public static List<Component> loreLines(String multiline) {
+        String[] lines = multiline.split("\n", -1);
+        List<Component> out = new ArrayList<>(Math.max(0, lines.length - 1));
+        for (int i = 1; i < lines.length; i++) out.add(text(lines[i]));
+        return out;
     }
 
     /** 将 &-颜色码字符串转为 Component，并去掉斜体默认样式(物品名/lore用)。 */

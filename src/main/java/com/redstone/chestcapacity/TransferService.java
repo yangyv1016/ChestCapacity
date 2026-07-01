@@ -120,8 +120,11 @@ public final class TransferService {
                 slotsToFree--;
             } else if (rest.getAmount() < s.getAmount()) {
                 physical.setItem(i, rest);          // 部分搬入
+            } else if (data.voidOverflow()) {       // 虚拟存储满且开了溢出销毁 -> 直接丢弃这槽, 保证红石不堵
+                physical.setItem(i, null);
+                slotsToFree--;
             } else {
-                continue;                           // 虚拟存储满了, 这槽搬不动
+                continue;                           // 虚拟存储满且未开销毁, 这槽搬不动
             }
             budget--;
             changed = true;

@@ -33,6 +33,7 @@ public final class ChestGui {
     private static final int PAGE_SLOTS = PluginConfig.SLOTS_PER_PAGE; // 45
     private static final int NAV_ROW_START = 45;
     private static final int SLOT_PREV = 45;
+    private static final int SLOT_VOID = 47;        // 溢出销毁开关按钮
     private static final int SLOT_INDICATOR = 49;
     private static final int SLOT_NEXT = 53;
 
@@ -64,6 +65,7 @@ public final class ChestGui {
 
         renderPage(inv, data, page);
         renderNav(inv, page, data.pages());
+        renderVoidButton(inv, data);
         openViews.computeIfAbsent(chestKey, k -> new HashSet<>()).add(holder); // 登记, 让搬运 tick 能对账它
         player.openInventory(inv);
     }
@@ -96,6 +98,14 @@ public final class ChestGui {
                         .replace("%pages%", Integer.toString(pages)))));
     }
 
+    /** 单独渲染溢出销毁按钮：开=红色火焰弹, 关=绿色屏障。文案首行为名, 其余行为 lore。 */
+    private void renderVoidButton(Inventory inv, ChestData data) {
+        boolean on = data.voidOverflow();
+        Material icon = on ? Material.FIRE_CHARGE : Material.STRUCTURE_VOID;
+        String text = on ? config.guiVoidOn : config.guiVoidOff;
+        inv.setItem(SLOT_VOID, labeled(icon, text));
+    }
+
     /**
      * 把 GUI 上半区（45 格）刷回 ChestData 的当前页。
      * 翻页前、关闭时调用，保证虚拟存储与界面一致。
@@ -117,12 +127,20 @@ public final class ChestGui {
 
     public int slotPrev() { return SLOT_PREV; }
     public int slotNext() { return SLOT_NEXT; }
+    public int slotVoid() { return SLOT_VOID; }
 
     /**
-     * 处理导航行点击：翻页。返回处理后应保持打开(true)还是无操作(false)。
+     * 处理导航行点击：翻页或切换溢出销毁。
      * 内容区点击不经过这里（放行给原版）。
      */
     public void handleNavClick(Player player, ChestGuiHolder holder, int rawSlot) {
+        if (rawSlot == SLOT_VOID) {                  // 切换溢出销毁开关, 只刷这一个按钮, 不打断查看
+            holder.data().toggleVoidOverflow();
+            Inventory inv = holder.getInventory();
+            if (inv != null) renderVoidButton(inv, holder.data());
+            store.saveAsync();                       // 开关是持久状态, 立即落盘防丢
+            return;
+        }
         if (rawSlot != SLOT_PREV && rawSlot != SLOT_NEXT) return;
         writeBack(holder);                       // 翻页前保存本页编辑
         int target = holder.page() + (rawSlot == SLOT_NEXT ? 1 : -1);
@@ -177,6 +195,23 @@ public final class ChestGui {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(name);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    /** 多行文案 -> 物品：首行作显示名，其余行作 lore（换行符切分）。 */
+    private static ItemStack labeled(Material material, String multiline) {
+        String[] lines = multiline.split("\n", -1);
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(PluginConfig.text(lines[0]));
+            if (lines.length > 1) {
+                java.util.List<Component> lore = new java.util.ArrayList<>();
+                for (int i = 1; i < lines.length; i++) lore.add(PluginConfig.text(lines[i]));
+                meta.lore(lore);
+            }
             item.setItemMeta(meta);
         }
         return item;

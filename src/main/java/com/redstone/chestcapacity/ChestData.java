@@ -21,6 +21,9 @@ public final class ChestData {
 
     private int pages;
     private ItemStack[] slots;
+    // 溢出销毁开关：开启后，虚拟存储已满、物理格又搬不下去的溢出物品由搬运层直接删除。
+    // 存在意义：红石服里下游堵塞时避免物理格回堵导致漏斗卡死；权威在虚拟存储层，随 chests.yml 落盘。
+    private boolean voidOverflow;
 
     public ChestData(int pages) {
         this.pages = Math.max(1, pages);
@@ -29,6 +32,11 @@ public final class ChestData {
 
     public int pages() { return pages; }
     public int capacity() { return slots.length; }
+
+    public boolean voidOverflow() { return voidOverflow; }
+    public void setVoidOverflow(boolean v) { this.voidOverflow = v; }
+    /** 翻转溢出销毁开关，返回翻转后的新状态（供按钮点击调用）。 */
+    public boolean toggleVoidOverflow() { this.voidOverflow = !this.voidOverflow; return this.voidOverflow; }
 
     public ItemStack getSlot(int index) {
         return (index >= 0 && index < slots.length) ? slots[index] : null;
@@ -134,9 +142,10 @@ public final class ChestData {
         return copy;
     }
 
-    /** 把自身写入给定配置节：pages / contents。 */
+    /** 把自身写入给定配置节：pages / void-overflow / contents。 */
     public void writeTo(ConfigurationSection sec) {
         sec.set("pages", pages);
+        sec.set("void-overflow", voidOverflow);
         sec.set("contents", snapshotContents());
     }
 
@@ -144,6 +153,7 @@ public final class ChestData {
     public static ChestData readFrom(ConfigurationSection sec) {
         int pages = Math.max(1, sec.getInt("pages", 1));
         ChestData data = new ChestData(pages);
+        data.voidOverflow = sec.getBoolean("void-overflow", false);
         List<?> list = sec.getList("contents");
         if (list != null) {
             int n = Math.min(list.size(), data.slots.length);
