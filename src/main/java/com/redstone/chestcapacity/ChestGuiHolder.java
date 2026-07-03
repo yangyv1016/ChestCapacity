@@ -4,29 +4,33 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 /**
- * 分页 GUI 的归属标记。一个 holder = 某个玩家正在查看某个箱子的某一页。
+ * 分页 GUI 的归属标记。一个 holder = 某个玩家正在查看某个（单箱或双联）大仓库的某一页。
  *
  * 作用：InventoryClickEvent / InventoryCloseEvent 拿到 holder 即可判定
- * “这是本插件的扩容箱界面”，并取回它对应的 ChestData 与当前页码，
+ * “这是本插件的扩容箱界面”，并取回它对应的 ChestView 与当前页码，
  * 无需用标题字符串反查（脆弱）。
  *
- * 注意：GUI 展示的是 ChestData 的“虚拟存储”内容，不含物理 27 格。
- * 物理格由红石/漏斗和 TransferService 管，GUI 不碰。
+ * 双联支持：持有的是 ChestView（1 或 2 段 ChestData 的连续视图），
+ * 而非单份 ChestData。GUI 全程只跟 view 的全局槽打交道，不感知单/双联。
+ * chestKey 是打开入口的规范键（双联=左半），仅用于标题与日志；搬运/写回/悬浮字
+ * 定位改用 view.blockKeys() 覆盖全部段。
+ *
+ * 注意：GUI 展示的是虚拟存储内容，不含物理 27 格。物理格由红石/漏斗和 TransferService 管。
  */
 public final class ChestGuiHolder implements InventoryHolder {
 
-    private final ChestData data;
-    private final String chestKey;   // 该箱子的坐标键, 供关闭回写与刷新悬浮文字定位
+    private final ChestView view;
+    private final String chestKey;   // 打开入口的规范键（双联=左半），供标题/日志
     private int page;                // 当前页(0-based)
     private Inventory inventory;
 
-    public ChestGuiHolder(ChestData data, String chestKey, int page) {
-        this.data = data;
+    public ChestGuiHolder(ChestView view, String chestKey, int page) {
+        this.view = view;
         this.chestKey = chestKey;
         this.page = page;
     }
 
-    public ChestData data() { return data; }
+    public ChestView view() { return view; }
     public String chestKey() { return chestKey; }
     public int page() { return page; }
     public void setPage(int page) { this.page = page; }

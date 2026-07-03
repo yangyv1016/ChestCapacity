@@ -89,10 +89,12 @@ public final class TransferService {
             if (viewed) gui.absorbEdits(key);                  // 1. 吸收玩家编辑
 
             ChestData d = e.getValue();
-            boolean changed = balanceOne(chest.getInventory(), d, target); // 2. 搬运
+            // 只搬本半的物理 27 格(getBlockInventory)。双联时 getInventory 会返回合并的 54 格,
+            // 导致水位计数按两半合计、搬运串味; getBlockInventory 严格只取当前方块这一半。
+            boolean changed = balanceOne(chest.getBlockInventory(), d, target); // 2. 搬运
 
             if (viewed) gui.refreshViews(key);                 // 3. 回显给玩家(即便本 tick 没搬也刷, 反映其他来源改动)
-            if (changed) holograms.refresh(block, d.usedStacks(), d.capacity(), d.pages());
+            if (changed) holograms.syncBlock(block);           // 内容变了 -> 刷该配对悬浮字(幂等, 双联两半重复调用也安全)
         }
     }
 

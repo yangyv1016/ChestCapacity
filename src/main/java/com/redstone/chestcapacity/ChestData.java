@@ -24,6 +24,9 @@ public final class ChestData {
     // 溢出销毁开关：开启后，虚拟存储已满、物理格又搬不下去的溢出物品由搬运层直接删除。
     // 存在意义：红石服里下游堵塞时避免物理格回堵导致漏斗卡死；权威在虚拟存储层，随 chests.yml 落盘。
     private boolean voidOverflow;
+    // 悬浮字显示开关：默认关（false），玩家在 GUI 里按需开启。权威随 chests.yml 落盘。
+    // 放在这里而非方块 PDC，是为了与 voidOverflow 同源、同落盘、同一 GUI 按钮语义，避免状态分散。
+    private boolean hologramShown;
 
     public ChestData(int pages) {
         this.pages = Math.max(1, pages);
@@ -37,6 +40,11 @@ public final class ChestData {
     public void setVoidOverflow(boolean v) { this.voidOverflow = v; }
     /** 翻转溢出销毁开关，返回翻转后的新状态（供按钮点击调用）。 */
     public boolean toggleVoidOverflow() { this.voidOverflow = !this.voidOverflow; return this.voidOverflow; }
+
+    public boolean isHologramShown() { return hologramShown; }
+    public void setHologramShown(boolean v) { this.hologramShown = v; }
+    /** 翻转悬浮字显示开关，返回翻转后的新状态（供按钮点击调用）。 */
+    public boolean toggleHologramShown() { this.hologramShown = !this.hologramShown; return this.hologramShown; }
 
     public ItemStack getSlot(int index) {
         return (index >= 0 && index < slots.length) ? slots[index] : null;
@@ -128,6 +136,18 @@ public final class ChestData {
         return overflow;
     }
 
+    /** 清空全部槽位（拆除双联重分布时先清空剩余半，再从合并流回填）。 */
+    public void clear() {
+        java.util.Arrays.fill(slots, null);
+    }
+
+    /** 按槽序取出全部非空内容为列表（供拆除掉落 / 重分布收集连续流）。 */
+    public List<ItemStack> contentsList() {
+        List<ItemStack> out = new ArrayList<>();
+        for (ItemStack s : slots) if (s != null && !s.getType().isAir()) out.add(s);
+        return out;
+    }
+
     /** 当前存量（堆叠数，非物品件数），用于统计/悬浮文字显示。 */
     public int usedStacks() {
         int n = 0;
@@ -142,10 +162,11 @@ public final class ChestData {
         return copy;
     }
 
-    /** 把自身写入给定配置节：pages / void-overflow / contents。 */
+    /** 把自身写入给定配置节：pages / void-overflow / hologram-shown / contents。 */
     public void writeTo(ConfigurationSection sec) {
         sec.set("pages", pages);
         sec.set("void-overflow", voidOverflow);
+        sec.set("hologram-shown", hologramShown);
         sec.set("contents", snapshotContents());
     }
 
@@ -154,6 +175,7 @@ public final class ChestData {
         int pages = Math.max(1, sec.getInt("pages", 1));
         ChestData data = new ChestData(pages);
         data.voidOverflow = sec.getBoolean("void-overflow", false);
+        data.hologramShown = sec.getBoolean("hologram-shown", false);  // 默认关闭
         List<?> list = sec.getList("contents");
         if (list != null) {
             int n = Math.min(list.size(), data.slots.length);

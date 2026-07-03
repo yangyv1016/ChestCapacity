@@ -36,7 +36,7 @@ public final class ChestCapacityPlugin extends JavaPlugin {
         store = new VirtualStore(this);
         store.load();
 
-        holograms = new HologramManager(config, keys);
+        holograms = new HologramManager(config, keys, store);
         gui = new ChestGui(config, store, holograms);
         transfer = new TransferService(this, config, store, holograms, gui);
         transfer.start();

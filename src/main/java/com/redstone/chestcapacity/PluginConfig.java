@@ -46,6 +46,8 @@ public final class PluginConfig {
     public final boolean guiFiller;
     public final String guiVoidOn;    // 溢出销毁按钮: 已开启态文案
     public final String guiVoidOff;   // 溢出销毁按钮: 已关闭态文案
+    public final String guiHoloOn;    // 悬浮字按钮: 已开启态文案
+    public final String guiHoloOff;   // 悬浮字按钮: 已关闭态文案
 
     // 物品显示
     private final String itemName;
@@ -81,6 +83,10 @@ public final class PluginConfig {
                 "&c溢出销毁: 开\n&7虚拟仓库满后, 搬不下的溢出物品\n&7将被直接删除(防红石堵塞)。\n&e点击关闭");
         this.guiVoidOff = c.getString("gui.void-overflow-off",
                 "&a溢出销毁: 关\n&7虚拟仓库满后, 物理格保留物品\n&7(可能回堵漏斗)。\n&e点击开启");
+        this.guiHoloOn = c.getString("gui.hologram-on",
+                "&a悬浮字: 开\n&7箱子上方显示容量占用文字。\n&e点击关闭");
+        this.guiHoloOff = c.getString("gui.hologram-off",
+                "&7悬浮字: 关\n&7箱子上方不显示文字。\n&e点击开启");
 
         this.itemName = c.getString("item.name", "&6扩容箱子");
         this.itemLore = c.getStringList("item.lore");
