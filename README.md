@@ -35,14 +35,33 @@ One parameter `keep-filled-slots` covers three use cases:
 
 Each page adds 45 slots of virtual storage. Max pages configurable.
 
+### Double-Chest Merging
+
+Two expanded chests placed side by side merge into one unit — just like vanilla double chests, but capacities **stack**:
+
+```
+Left expanded chest (2 pages) + Right expanded chest (3 pages)
+  → one merged GUI entry, 5 pages total (segments concatenated, LEFT-first)
+  → one hologram shown at the midpoint with combined usage
+
+Mixed pairs are forbidden: an expanded chest will not merge with a normal chest.
+  Placing one next to a normal chest is cancelled (kept in hand) with a hint.
+```
+
+Breaking one half follows vanilla feel: the merged content is truncated to the
+remaining half's capacity (front-N slots kept in place, no reshuffle), and the
+tail overflow drops on the ground.
+
 ### Features
 
 - **Place-to-activate** — Drop the special chest item; it immediately gains capacity following config defaults. No commands needed for daily use.
 - **Right-click GUI** — Open a paginated virtual warehouse (6 rows, 45 slots per page + navigation bar).
+- **Double-chest merge** — Adjacent expanded chests share one GUI with stacked capacity; mixed pairs with normal chests are blocked.
 - **Redstone-ready** — Vanilla hoppers interact with the physical 27 slots; the plugin silently moves items in/out of the large virtual storage.
-- **Hologram overlay** — TextDisplay above chest shows used/total capacity (blocks have no vanilla tooltip).
+- **Per-chest hologram toggle** — TextDisplay above chest shows used/total capacity. Off by default; each chest has its own toggle button in the GUI. Global `hologram.enabled` is the master switch (both must be on).
+- **Sorting-mod friendly** — GUI navigation row is protected against one-click sorting mods (drag and double-click-collect can't sweep the nav buttons or leak items).
 - **Item lore** — The held chest item shows pages/slots info via PDC-backed lore.
-- **Graceful break** — Breaking drops an empty chest item with capacity NBT + virtual contents are dropped in a rate-limited stream (anti-lag).
+- **Graceful break** — Breaking drops an empty chest item with capacity NBT + virtual contents are dropped in a rate-limited stream (anti-lag). Explosions (TNT/creeper/bed) are handled too, so holograms never leak.
 - **YAML persistence** — Virtual inventories save/load asynchronously to `chests.yml`.
 
 ### Commands
@@ -96,6 +115,10 @@ gui:
   next-page: "&aNext »"
   page-indicator: "&ePage %page% / %pages%"
   filler: true
+  void-overflow-on: "..."   # overflow-void toggle button lore
+  void-overflow-off: "..."
+  hologram-on: "..."        # per-chest hologram toggle button lore
+  hologram-off: "..."
 
 item:
   name: "&6Expanded Chest"
@@ -109,7 +132,7 @@ Requirements: JDK 21+
 
 ```bash
 ./gradlew build
-# Output: build/libs/ChestCapacity-1.0.0.jar
+# Output: build/libs/ChestCapacity-1.0.5.jar
 ```
 
 ---
@@ -138,14 +161,32 @@ Requirements: JDK 21+
 
 每页 45 格虚拟存储，最大页数可配置。
 
+### 双箱合并
+
+两个扩容箱相邻摆放会像原版双联箱一样合并成一个整体，但容量是**叠加**的：
+
+```
+左扩容箱(2 页) + 右扩容箱(3 页)
+  → 一个统一 GUI 入口, 共 5 页(两段内容按 LEFT 在前拼接)
+  → 中点处显示一个悬浮字, 汇总两半的占用
+
+禁止混合配对: 扩容箱不会和普通箱子合并。
+  把扩容箱放在普通箱旁边会被取消(物品留在手上)并给出提示。
+```
+
+拆掉其中一半贴合原版体感: 合并内容按剩余半的容量严格截断(保留前 N 格且位置不变、不重排)，
+放不下的尾端物品原样掉落在地上。
+
 ### 特性
 
 - **放下即生效** — 拿起扩容箱物品放置，自动按配置扩容。不需要指令，日常不依赖指令。
 - **右键大容量 GUI** — 6 行分页界面，每页 45 格 + 底部导航行，翻页自动保存。
+- **双箱合并** — 相邻的两个扩容箱共用一个 GUI、容量叠加；与普通箱子的混合配对被阻止。
 - **红石友好** — 漏斗照常怼物理 27 格，插件后台自动在物理格与虚拟大仓库之间搬运。
-- **悬浮文字** — 箱子方块上方 TextDisplay 显示已用/总格数（弥补原版方块无 tooltip 的限制）。
+- **每箱悬浮字开关** — 箱子上方 TextDisplay 显示已用/总格数。默认关闭，每个箱子在 GUI 里有独立开关按钮。全局 `hologram.enabled` 是总开关（两者都开才显示）。
+- **兼容一键整理 mod** — GUI 底部导航行受保护，整理 mod 的拖拽分发与双击收集无法卷走导航按钮或漏物品。
 - **物品悬停** — 手持扩容箱物品时 lore 显示容量、页数、使用说明。
-- **优雅破坏** — 挖掉箱子掉落带容量 NBT 的空箱（可回收），虚拟内容限速分批掉在原地（防卡服）。
+- **优雅破坏** — 挖掉箱子掉落带容量 NBT 的空箱（可回收），虚拟内容限速分批掉在原地（防卡服）。TNT/苦力怕/床等爆炸也会被接管，悬浮字不残留。
 - **YAML 持久化** — 虚拟仓库数据异步保存到 `chests.yml`。
 
 ### 指令
@@ -199,6 +240,10 @@ gui:
   next-page: "&a下一页 »"
   page-indicator: "&e第 %page% / %pages% 页"
   filler: true
+  void-overflow-on: "..."   # 溢出销毁开关按钮文案
+  void-overflow-off: "..."
+  hologram-on: "..."        # 每箱悬浮字开关按钮文案(默认关)
+  hologram-off: "..."
 
 item:
   name: "&6大大大箱子"
@@ -212,5 +257,5 @@ item:
 
 ```bash
 ./gradlew build
-# 输出: build/libs/ChestCapacity-1.0.0.jar
+# 输出: build/libs/ChestCapacity-1.0.5.jar
 ```
