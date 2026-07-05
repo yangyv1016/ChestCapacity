@@ -54,7 +54,7 @@ public final class ChestCapacityPlugin extends JavaPlugin {
 
         getLogger().info("ChestCapacity 已启用。默认容量 " + config.defaultPages
                 + " 页, 水位缓冲=" + (config.bufferEnabled
-                        ? "开(保留" + config.keepFilledSlots + "格)" : "关") + "。");
+                        ? "开(水位 " + config.keepFilledLow + "~" + config.keepFilledHigh + " 格)" : "关") + "。");
     }
 
     @Override

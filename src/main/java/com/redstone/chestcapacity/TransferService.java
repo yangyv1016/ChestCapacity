@@ -15,17 +15,18 @@ import java.util.Map;
 
 /**
  * 水位缓冲搬运服务：每隔 transfer-interval-ticks 扫描所有已登记的扩容箱，
- * 维持物理 27 格处于 keep-filled-slots 目标水位。
+ * 维持物理 27 格处于滞回双阈值 [keep-filled-low, keep-filled-high] 区间内。
  *
- *   物理非空槽 occupied 与目标水位 target 的关系决定单向搬运方向：
- *     occupied > target  ->  下沉：把物理格多余物品塞进虚拟存储(ChestData.push)
- *     occupied < target  ->  补货：从虚拟存储抽物品补进物理格(ChestData.pull)
- *     occupied == target ->  不动(滞回，避免来回震荡)
+ *   物理非空槽 occupied 与阈值区间的关系决定搬运方向：
+ *     occupied > high  ->  下沉：把物理格多余物品塞进虚拟存储(ChestData.push)
+ *     occupied < low   ->  补货：从虚拟存储抽物品补进物理格(ChestData.pull)
+ *     low..high        ->  不动(滞回带，避免每 tick 来回震荡)
  *
- *   一个 keep-filled-slots 覆盖三种红石语义：
- *     0  => 尽量清空物理格 => 无限吃货箱
- *     27 => 尽量填满物理格 => 无限供货箱
- *     中间 => 双向缓冲
+ *   阈值区间覆盖三种红石语义：
+ *     low=0,  high=0   => 尽量清空物理格 => 无限吃货箱(只进不出)
+ *     low=27, high=27  => 尽量填满物理格 => 无限供货箱(只出不进)
+ *     low<high(如 1~26) => 双向缓冲(漏斗既能塞进也能抽出)
+ *   low=high 退化为旧的单一水位行为, 与旧 keep-filled-slots 配置一致。
  *
  * 性能护栏：
  *   · 跳过未加载区块的箱子（不强制加载，红石服友好）。
@@ -75,7 +76,6 @@ public final class TransferService {
      * 三步串行且同在主线程，tick 结尾界面与 data 恒一致，不存在过期快照覆盖。
      */
     private void tick() {
-        int target = config.keepFilledSlots;
         for (Map.Entry<String, ChestData> e : new ArrayList<>(store.entries())) {
             String key = e.getKey();
             Block block = VirtualStore.blockOf(key);
@@ -91,7 +91,7 @@ public final class TransferService {
             ChestData d = e.getValue();
             // 只搬本半的物理 27 格(getBlockInventory)。双联时 getInventory 会返回合并的 54 格,
             // 导致水位计数按两半合计、搬运串味; getBlockInventory 严格只取当前方块这一半。
-            boolean changed = balanceOne(chest.getBlockInventory(), d, target); // 2. 搬运
+            boolean changed = balanceOne(chest.getBlockInventory(), d); // 2. 搬运
 
             if (viewed) gui.refreshViews(key);                 // 3. 回显给玩家(即便本 tick 没搬也刷, 反映其他来源改动)
             if (changed) holograms.syncBlock(block);           // 内容变了 -> 刷该配对悬浮字(幂等, 双联两半重复调用也安全)
@@ -99,12 +99,18 @@ public final class TransferService {
     }
 
     /**
-     * 让单个箱子的物理库存向目标水位靠拢一步。返回是否发生了内容变化(用于刷新悬浮文字)。
+     * 让单个箱子的物理库存回到滞回带 [low, high] 内, 靠拢一步。
+     * 返回是否发生了内容变化(用于刷新悬浮文字)。
+     *
+     *   occupied > high -> 下沉多余到 high(上游塞满 -> 腾格给漏斗继续塞)
+     *   occupied < low  -> 补货到 low   (下游抽空 -> 补回物理格给漏斗继续抽)
+     *   low..high       -> 不动(滞回, 避免震荡)
+     * low=high 时退化为旧的单一水位行为, 与旧配置一致。
      */
-    private boolean balanceOne(Inventory physical, ChestData data, int target) {
+    private boolean balanceOne(Inventory physical, ChestData data) {
         int occupied = countNonEmpty(physical);
-        if (occupied > target) return sink(physical, data, occupied - target);
-        if (occupied < target) return source(physical, data, target - occupied);
+        if (occupied > config.keepFilledHigh) return sink(physical, data, occupied - config.keepFilledHigh);
+        if (occupied < config.keepFilledLow) return source(physical, data, config.keepFilledLow - occupied);
         return false;
     }
 

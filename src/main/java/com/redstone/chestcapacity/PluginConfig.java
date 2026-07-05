@@ -20,9 +20,14 @@ public final class PluginConfig {
     public final int defaultPages;
     public final int maxPages;
 
-    // 红石水位缓冲
+    // 红石水位缓冲：滞回双阈值 [low, high]
+    //   occupied < low  -> 补货到 low(下游漏斗抽空了, 从虚拟存储补回物理格)
+    //   occupied > high -> 下沉到 high(上游漏斗塞满了, 多余下沉进虚拟存储)
+    //   low..high       -> 不动(滞回带, 避免每 tick 来回震荡)
+    // 兼容旧配置: 只写了 keep-filled-slots(单水位)时 low=high=该值, 退化为旧行为。
     public final boolean bufferEnabled;
-    public final int keepFilledSlots;
+    public final int keepFilledLow;
+    public final int keepFilledHigh;
     public final long transferIntervalTicks;
     public final int transferBatchPerChest;
 
@@ -61,7 +66,12 @@ public final class PluginConfig {
         this.maxPages = Math.max(this.defaultPages, c.getInt("max-pages", 54));
 
         this.bufferEnabled = c.getBoolean("buffer-enabled", true);
-        this.keepFilledSlots = clamp(c.getInt("keep-filled-slots", 0), 0, PHYSICAL_SLOTS);
+        // 单水位旧字段作为回退基准; 新双阈值缺省时退化为 low=high=旧值。
+        int legacy = clamp(c.getInt("keep-filled-slots", 0), 0, PHYSICAL_SLOTS);
+        int low = clamp(c.getInt("keep-filled-low", legacy), 0, PHYSICAL_SLOTS);
+        int high = clamp(c.getInt("keep-filled-high", legacy), 0, PHYSICAL_SLOTS);
+        this.keepFilledLow = Math.min(low, high);   // 纠正 low>high 的误配, 保证区间合法
+        this.keepFilledHigh = Math.max(low, high);
         this.transferIntervalTicks = Math.max(1L, c.getLong("transfer-interval-ticks", 2));
         this.transferBatchPerChest = Math.max(1, c.getInt("transfer-batch-per-chest", 5));
 
