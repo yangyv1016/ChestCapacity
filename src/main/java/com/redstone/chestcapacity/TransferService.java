@@ -147,7 +147,7 @@ public final class TransferService {
         while (budget > 0 && slotsToFill > 0) {
             int empty = firstEmpty(physical);
             if (empty < 0) break;                   // 物理格已满
-            ItemStack pulled = data.pull(64);       // 抽一个堆叠
+            ItemStack pulled = data.pull(config.refillBatch);  // 抽 refill-batch 个(默认1, GUI逐个减少贴合原版)
             if (pulled == null) break;              // 虚拟存储已空
             physical.setItem(empty, pulled);
             slotsToFill--;

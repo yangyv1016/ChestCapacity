@@ -30,6 +30,9 @@ public final class PluginConfig {
     public final int keepFilledHigh;
     public final long transferIntervalTicks;
     public final int transferBatchPerChest;
+    // 补货粒度：一次从虚拟存储抽多少个补进物理格。默认 1 = GUI 逐个减少(贴合原版漏斗视觉);
+    // 调大提升高速/多漏斗并联的吞吐, 但 GUI 扣减会更"跳"(一次少一批)。
+    public final int refillBatch;
 
     // 落盘
     public final long saveIntervalTicks;
@@ -74,6 +77,7 @@ public final class PluginConfig {
         this.keepFilledHigh = Math.max(low, high);
         this.transferIntervalTicks = Math.max(1L, c.getLong("transfer-interval-ticks", 2));
         this.transferBatchPerChest = Math.max(1, c.getInt("transfer-batch-per-chest", 5));
+        this.refillBatch = clamp(c.getInt("refill-batch", 1), 1, 64);
 
         this.saveIntervalTicks = Math.max(200L, c.getLong("save-interval-ticks", 1200));
 
