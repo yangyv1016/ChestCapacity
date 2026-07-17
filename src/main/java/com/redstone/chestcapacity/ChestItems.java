@@ -1,5 +1,7 @@
 package com.redstone.chestcapacity;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -55,4 +57,18 @@ public final class ChestItems {
         ItemMeta meta = item == null ? null : item.getItemMeta();
         return marker.readPages(meta, fallback);
     }
+
+    /**
+     * 读扩容箱物品的显示名，序列化为 legacy(&) 字符串供落盘/悬浮字复用。
+     * 玩家用铁砧改过物品名则返回改后的名，否则返回工厂默认名。无 displayName 返回 null。
+     */
+    public String readName(ItemStack item) {
+        ItemMeta meta = item == null ? null : item.getItemMeta();
+        if (meta == null || !meta.hasDisplayName()) return null;
+        Component name = meta.displayName();
+        return name == null ? null : LEGACY_AMP.serialize(name);
+    }
+
+    private static final LegacyComponentSerializer LEGACY_AMP =
+            LegacyComponentSerializer.legacyAmpersand();
 }

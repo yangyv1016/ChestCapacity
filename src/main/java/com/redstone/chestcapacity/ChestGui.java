@@ -38,7 +38,8 @@ public final class ChestGui {
     private static final int SLOT_PREV = 45;
     private static final int SLOT_VOID = 47;        // 溢出销毁开关按钮
     private static final int SLOT_INDICATOR = 49;
-    private static final int SLOT_HOLO = 51;        // 悬浮字显示开关按钮
+    private static final int SLOT_HOLO = 51;        // 容量悬浮字显示开关按钮
+    private static final int SLOT_NAME_HOLO = 52;   // 名字悬浮字显示开关按钮
     private static final int SLOT_NEXT = 53;
 
     private final PluginConfig config;
@@ -71,6 +72,7 @@ public final class ChestGui {
         renderNav(inv, page, view.totalPages());
         renderVoidButton(inv, view);
         renderHoloButton(inv, view);
+        renderNameHoloButton(inv, view);
         registerView(holder);                    // 按 view 的每个段 key 注册, 让搬运 tick 能对账
         player.openInventory(inv);
     }
@@ -119,6 +121,14 @@ public final class ChestGui {
         inv.setItem(SLOT_HOLO, labeled(icon, text));
     }
 
+    /** 单独渲染名字悬浮字开关：开=命名牌, 关=纸张。实际显示还受容量悬浮字总开关约束。 */
+    private void renderNameHoloButton(Inventory inv, ChestView view) {
+        boolean on = view.nameShown();
+        Material icon = on ? Material.NAME_TAG : Material.PAPER;
+        String text = on ? config.guiNameHoloOn : config.guiNameHoloOff;
+        inv.setItem(SLOT_NAME_HOLO, labeled(icon, text));
+    }
+
     /**
      * 把 GUI 上半区（45 格）刷回 view 的当前页。
      * 翻页前、关闭时、对账第一步调用，保证权威与界面一致。
@@ -142,6 +152,7 @@ public final class ChestGui {
     public int slotNext() { return SLOT_NEXT; }
     public int slotVoid() { return SLOT_VOID; }
     public int slotHolo() { return SLOT_HOLO; }
+    public int slotNameHolo() { return SLOT_NAME_HOLO; }
 
     /**
      * 处理导航行点击：翻页、切换溢出销毁、切换悬浮字。
@@ -156,11 +167,19 @@ public final class ChestGui {
             store.saveAsync();
             return;
         }
-        if (rawSlot == SLOT_HOLO) {                  // 切换悬浮字（双联两半共用一个显示）
+        if (rawSlot == SLOT_HOLO) {                  // 切换容量悬浮字（双联两半共用一个显示）
             view.toggleHologramShown();
             Inventory inv = holder.getInventory();
             if (inv != null) renderHoloButton(inv, view);
-            holograms.syncFor(view);                 // 立即挂出/清除
+            holograms.syncFor(view);                 // 主开关关时会一并清除名字实体
+            store.saveAsync();
+            return;
+        }
+        if (rawSlot == SLOT_NAME_HOLO) {             // 切换名字悬浮字（主开关关闭时仍保存状态但不显示）
+            view.toggleNameShown();
+            Inventory inv = holder.getInventory();
+            if (inv != null) renderNameHoloButton(inv, view);
+            holograms.syncFor(view);
             store.saveAsync();
             return;
         }

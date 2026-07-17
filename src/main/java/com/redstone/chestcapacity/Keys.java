@@ -12,11 +12,13 @@ import org.bukkit.plugin.Plugin;
  */
 public final class Keys {
 
-    public final NamespacedKey pages;   // Integer, 扩容页数(物品/方块)
-    public final NamespacedKey holo;    // String,  TextDisplay 归属的箱子坐标键
+    public final NamespacedKey pages;     // Integer, 扩容页数(物品/方块)
+    public final NamespacedKey holo;      // String,  容量 TextDisplay 归属的箱子坐标键
+    public final NamespacedKey holoName;  // String,  名字 TextDisplay 归属的箱子坐标键
 
     public Keys(Plugin plugin) {
-        this.pages = new NamespacedKey(plugin, "pages");
-        this.holo  = new NamespacedKey(plugin, "holo");
+        this.pages    = new NamespacedKey(plugin, "pages");
+        this.holo     = new NamespacedKey(plugin, "holo");
+        this.holoName = new NamespacedKey(plugin, "holo_name");
     }
 }

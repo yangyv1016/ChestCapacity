@@ -154,4 +154,24 @@ public final class ChestView {
         for (ChestData d : segments) d.setHologramShown(next);
         return next;
     }
+
+    /**
+     * 箱子名字取规范首段（双联=LEFT）。双联只显示一个名字，首段顺序由 ChestPairing 稳定保证。
+     * 名字来源是放置时扩容箱物品的 displayName（可由铁砧修改）。
+     */
+    public String customName() {
+        return segments.get(0).customName();
+    }
+
+    /** 名字悬浮字开关：同样取并集 + 统一置位，双联两半共用一个状态。 */
+    public boolean nameShown() {
+        for (ChestData d : segments) if (d.isNameShown()) return true;
+        return false;
+    }
+
+    public boolean toggleNameShown() {
+        boolean next = !nameShown();
+        for (ChestData d : segments) d.setNameShown(next);
+        return next;
+    }
 }

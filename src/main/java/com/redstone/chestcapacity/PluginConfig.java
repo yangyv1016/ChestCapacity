@@ -54,8 +54,10 @@ public final class PluginConfig {
     public final boolean guiFiller;
     public final String guiVoidOn;    // 溢出销毁按钮: 已开启态文案
     public final String guiVoidOff;   // 溢出销毁按钮: 已关闭态文案
-    public final String guiHoloOn;    // 悬浮字按钮: 已开启态文案
-    public final String guiHoloOff;   // 悬浮字按钮: 已关闭态文案
+    public final String guiHoloOn;    // 容量悬浮字按钮: 已开启态文案
+    public final String guiHoloOff;   // 容量悬浮字按钮: 已关闭态文案
+    public final String guiNameHoloOn;  // 名字悬浮字按钮: 已开启态文案
+    public final String guiNameHoloOff; // 名字悬浮字按钮: 已关闭态文案
 
     // 物品显示
     private final String itemName;
@@ -101,6 +103,10 @@ public final class PluginConfig {
                 "&a悬浮字: 开\n&7箱子上方显示容量占用文字。\n&e点击关闭");
         this.guiHoloOff = c.getString("gui.hologram-off",
                 "&7悬浮字: 关\n&7箱子上方不显示文字。\n&e点击开启");
+        this.guiNameHoloOn = c.getString("gui.name-hologram-on",
+                "&a名字悬浮字: 开\n&7显示箱子的铁砧命名。\n&7关闭容量悬浮字时会一并隐藏。\n&e点击关闭");
+        this.guiNameHoloOff = c.getString("gui.name-hologram-off",
+                "&7名字悬浮字: 关\n&7用铁砧重命名扩容箱物品后放置，\n&7可在箱子上方显示名字。\n&e点击开启");
 
         this.itemName = c.getString("item.name", "&6扩容箱子");
         this.itemLore = c.getStringList("item.lore");

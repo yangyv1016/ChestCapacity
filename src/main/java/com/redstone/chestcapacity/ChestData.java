@@ -27,6 +27,10 @@ public final class ChestData {
     // 悬浮字显示开关：默认关（false），玩家在 GUI 里按需开启。权威随 chests.yml 落盘。
     // 放在这里而非方块 PDC，是为了与 voidOverflow 同源、同落盘、同一 GUI 按钮语义，避免状态分散。
     private boolean hologramShown;
+    // 箱子名字：放置时从扩容箱物品的 displayName 继承（玩家可用铁砧改物品名）。null/空 表示未命名。
+    private String customName;
+    // 名字悬浮字显示开关：默认关。仅在容量悬浮字(hologramShown)也开启时才实际显示(联动约束)。
+    private boolean nameShown;
 
     public ChestData(int pages) {
         this.pages = Math.max(1, pages);
@@ -45,6 +49,17 @@ public final class ChestData {
     public void setHologramShown(boolean v) { this.hologramShown = v; }
     /** 翻转悬浮字显示开关，返回翻转后的新状态（供按钮点击调用）。 */
     public boolean toggleHologramShown() { this.hologramShown = !this.hologramShown; return this.hologramShown; }
+
+    /** 箱子名字（可空）。放置时从物品 displayName 继承。 */
+    public String customName() { return customName; }
+    public void setCustomName(String name) {
+        this.customName = (name == null || name.isBlank()) ? null : name;
+    }
+
+    public boolean isNameShown() { return nameShown; }
+    public void setNameShown(boolean v) { this.nameShown = v; }
+    /** 翻转名字悬浮字开关，返回翻转后的新状态。 */
+    public boolean toggleNameShown() { this.nameShown = !this.nameShown; return this.nameShown; }
 
     public ItemStack getSlot(int index) {
         return (index >= 0 && index < slots.length) ? slots[index] : null;
@@ -162,11 +177,13 @@ public final class ChestData {
         return copy;
     }
 
-    /** 把自身写入给定配置节：pages / void-overflow / hologram-shown / contents。 */
+    /** 把自身写入给定配置节：pages / void-overflow / hologram-shown / name / name-shown / contents。 */
     public void writeTo(ConfigurationSection sec) {
         sec.set("pages", pages);
         sec.set("void-overflow", voidOverflow);
         sec.set("hologram-shown", hologramShown);
+        sec.set("custom-name", customName);
+        sec.set("name-shown", nameShown);
         sec.set("contents", snapshotContents());
     }
 
@@ -176,6 +193,8 @@ public final class ChestData {
         ChestData data = new ChestData(pages);
         data.voidOverflow = sec.getBoolean("void-overflow", false);
         data.hologramShown = sec.getBoolean("hologram-shown", false);  // 默认关闭
+        data.setCustomName(sec.getString("custom-name", null));
+        data.nameShown = sec.getBoolean("name-shown", false);          // 默认关闭
         List<?> list = sec.getList("contents");
         if (list != null) {
             int n = Math.min(list.size(), data.slots.length);

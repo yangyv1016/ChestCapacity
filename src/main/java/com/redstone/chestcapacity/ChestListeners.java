@@ -87,7 +87,8 @@ public final class ChestListeners implements Listener {
         chest.update(true, false);
 
         String key = VirtualStore.keyOf(block);
-        store.create(key, pages);
+        ChestData data = store.create(key, pages);
+        data.setCustomName(items.readName(inHand)); // 从物品(可能被铁砧改过名)继承名字
         holograms.syncBlock(block);                  // 按配对刷新(双联合并显示)
     }
 
