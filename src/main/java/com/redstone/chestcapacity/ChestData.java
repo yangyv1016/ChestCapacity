@@ -27,7 +27,7 @@ public final class ChestData {
     // 悬浮字显示开关：默认关（false），玩家在 GUI 里按需开启。权威随 chests.yml 落盘。
     // 放在这里而非方块 PDC，是为了与 voidOverflow 同源、同落盘、同一 GUI 按钮语义，避免状态分散。
     private boolean hologramShown;
-    // 箱子名字：放置时从扩容箱物品的 displayName 继承（玩家可用铁砧改物品名）。null/空 表示未命名。
+    // 箱子名字：放置时只继承扩容箱物品的铁砧自定义名；null/空 表示未命名。
     private String customName;
     // 名字悬浮字显示开关：默认关。仅在容量悬浮字(hologramShown)也开启时才实际显示(联动约束)。
     private boolean nameShown;

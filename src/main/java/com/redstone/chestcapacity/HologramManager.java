@@ -36,7 +36,8 @@ import java.util.Set;
 public final class HologramManager {
 
     private static final double SEARCH_RADIUS = 1.6;  // 覆盖双联中点到两半上方的实体
-    private static final double NAME_VERTICAL_GAP = 0.28; // 名字实体相对容量悬浮字的额外高度
+    // 容量文字默认是两行；0.28 格只相当于约一行字高，会压住其首行。
+    private static final double NAME_VERTICAL_GAP = 0.55;
 
     private final PluginConfig config;
     private final Keys keys;
@@ -117,7 +118,11 @@ public final class HologramManager {
         for (Block b : pairing.blocks()) {
             ChestData d = store.get(VirtualStore.keyOf(b));
             if (d == null) continue;                 // 该半不是扩容箱, 跳过
-            if (a.segments == 0) a.customName = d.customName();
+            if (a.segments == 0) {
+                String storedName = d.customName();
+                // 兼容旧数据：旧版本曾把插件默认物品名误当成铁砧改名落盘。
+                a.customName = config.isDefaultItemName(storedName, d.pages()) ? null : storedName;
+            }
             a.segments++;
             a.used += d.usedStacks();
             a.capacity += d.capacity();

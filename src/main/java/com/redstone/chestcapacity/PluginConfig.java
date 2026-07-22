@@ -121,6 +121,19 @@ public final class PluginConfig {
         return text(fillItem(itemName, pages));
     }
 
+    /** 判断一个组件是否就是插件按当前页数生成的默认物品名。 */
+    public boolean isDefaultItemName(Component name, int pages) {
+        return name != null && name.equals(itemDisplayName(pages));
+    }
+
+    /**
+     * 判断落盘的 legacy 名字是否只是旧版本误存的默认物品名。
+     * 用 Component 比较而非原始字符串比较，避免颜色码序列化形式差异。
+     */
+    public boolean isDefaultItemName(String legacy, int pages) {
+        return legacy != null && isDefaultItemName(text(legacy), pages);
+    }
+
     /** 组装物品 lore。把“lore 长什么样”收拢在配置对象里，物品构建处只管调用。 */
     public List<Component> itemLore(int pages) {
         List<Component> out = new ArrayList<>(itemLore.size());

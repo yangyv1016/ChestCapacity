@@ -59,14 +59,15 @@ public final class ChestItems {
     }
 
     /**
-     * 读扩容箱物品的显示名，序列化为 legacy(&) 字符串供落盘/悬浮字复用。
-     * 玩家用铁砧改过物品名则返回改后的名，否则返回工厂默认名。无 displayName 返回 null。
+     * 读取铁砧自定义名，序列化为 legacy(&) 字符串供落盘/悬浮字复用。
+     * 插件工厂写入的默认物品名不算自定义名，避免它与容量悬浮字中的箱子标题重复显示。
      */
-    public String readName(ItemStack item) {
+    public String readCustomName(ItemStack item, int pages) {
         ItemMeta meta = item == null ? null : item.getItemMeta();
         if (meta == null || !meta.hasDisplayName()) return null;
         Component name = meta.displayName();
-        return name == null ? null : LEGACY_AMP.serialize(name);
+        if (name == null || config.isDefaultItemName(name, pages)) return null;
+        return LEGACY_AMP.serialize(name);
     }
 
     private static final LegacyComponentSerializer LEGACY_AMP =
