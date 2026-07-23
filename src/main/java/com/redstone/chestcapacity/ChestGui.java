@@ -18,8 +18,8 @@ import java.util.Set;
  *
  * 布局（6 行 54 格）：
  *   行 0..4 (槽 0..44)  = 当前页内容，映射到 view 全局槽 [page*45, page*45+45)
- *   行 5   (槽 45..53)  = 导航行：45 上一页, 46 整理, 47 溢出销毁, 49 页码,
- *                            51 容量悬浮字, 52 名字悬浮字, 53 下一页
+ *   行 5   (槽 45..53)  = 导航行：45 上一页, 46 整理, 47 溢出销毁, 48 比较器容量,
+ *                            49 页码, 51 容量悬浮字, 52 名字悬浮字, 53 下一页
  *
  * 单/双联无感知：GUI 只跟 view 的全局槽打交道，段路由封在 ChestView 内。
  *   双联 = view 有两段（LEFT 在前），总页数与容量自然叠加，翻页连续跨越两半。
@@ -36,6 +36,7 @@ public final class ChestGui {
     private static final int SLOT_PREV = 45;
     private static final int SLOT_SORT = 46;        // 整个逻辑仓库整理按钮
     private static final int SLOT_VOID = 47;        // 溢出销毁开关按钮
+    private static final int SLOT_COMPARATOR = 48;  // 比较器真实容量开关按钮
     private static final int SLOT_INDICATOR = 49;
     private static final int SLOT_HOLO = 51;        // 容量悬浮字显示开关按钮
     private static final int SLOT_NAME_HOLO = 52;   // 名字悬浮字显示开关按钮
@@ -74,6 +75,7 @@ public final class ChestGui {
         renderNav(inv, page, view.totalPages());
         renderSortButton(inv);
         renderVoidButton(inv, view);
+        renderComparatorButton(inv, view);
         renderHoloButton(inv, view);
         renderNameHoloButton(inv, view);
         registerView(holder);                    // 按 view 的每个段 key 注册, 让搬运 tick 能对账
@@ -121,6 +123,14 @@ public final class ChestGui {
         inv.setItem(SLOT_VOID, labeled(icon, text));
     }
 
+    /** 比较器真实容量开关：开=比较器，关=中继器。默认关闭，只检测第一页。 */
+    private void renderComparatorButton(Inventory inv, ChestView view) {
+        boolean on = view.comparatorRealCapacity();
+        Material icon = on ? Material.COMPARATOR : Material.REPEATER;
+        String text = on ? config.guiComparatorRealOn : config.guiComparatorRealOff;
+        inv.setItem(SLOT_COMPARATOR, labeled(icon, text));
+    }
+
     /** 单独渲染悬浮字开关按钮：开=荧光物品展示框, 关=物品展示框。 */
     private void renderHoloButton(Inventory inv, ChestView view) {
         boolean on = view.hologramShown();
@@ -160,6 +170,7 @@ public final class ChestGui {
     public int slotNext() { return SLOT_NEXT; }
     public int slotSort() { return SLOT_SORT; }
     public int slotVoid() { return SLOT_VOID; }
+    public int slotComparator() { return SLOT_COMPARATOR; }
     public int slotHolo() { return SLOT_HOLO; }
     public int slotNameHolo() { return SLOT_NAME_HOLO; }
 
@@ -182,6 +193,15 @@ public final class ChestGui {
             view.toggleVoidOverflow();
             Inventory inv = holder.getInventory();
             if (inv != null) renderVoidButton(inv, view);
+            store.saveAsync();
+            return;
+        }
+        if (rawSlot == SLOT_COMPARATOR) {            // 每箱独立选择第一页或全部容量
+            absorbEdits(holder.chestKey());
+            view.toggleComparatorRealCapacity();
+            Inventory inv = holder.getInventory();
+            if (inv != null) renderComparatorButton(inv, view);
+            comparators.refresh(view);
             store.saveAsync();
             return;
         }

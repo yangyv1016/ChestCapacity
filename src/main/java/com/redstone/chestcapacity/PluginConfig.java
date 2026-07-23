@@ -48,6 +48,8 @@ public final class PluginConfig {
     public final String guiSort;      // 整理整个逻辑仓库按钮文案
     public final String guiVoidOn;    // 溢出销毁按钮: 已开启态文案
     public final String guiVoidOff;   // 溢出销毁按钮: 已关闭态文案
+    public final String guiComparatorRealOn;  // 比较器真实容量按钮: 已开启态文案
+    public final String guiComparatorRealOff; // 比较器真实容量按钮: 已关闭态文案
     public final String guiHoloOn;    // 容量悬浮字按钮: 已开启态文案
     public final String guiHoloOff;   // 容量悬浮字按钮: 已关闭态文案
     public final String guiNameHoloOn;  // 名字悬浮字按钮: 已开启态文案
@@ -94,6 +96,10 @@ public final class PluginConfig {
                 "&c溢出销毁: 开\n&7虚拟仓库满后, 输入端送入的溢出物品\n&7将被直接删除(防红石堵塞)。\n&e点击关闭");
         this.guiVoidOff = c.getString("gui.void-overflow-off",
                 "&a溢出销毁: 关\n&7虚拟仓库满后, 物品保留在输入漏斗\n&7(可能造成红石回堵)。\n&e点击开启");
+        this.guiComparatorRealOn = c.getString("gui.comparator-real-capacity-on",
+                "&c比较器真实容量: 开\n&7按全部虚拟槽位计算红石信号。\n&7会反映扩容后的真实占用率。\n&e点击改为只检测第一页");
+        this.guiComparatorRealOff = c.getString("gui.comparator-real-capacity-off",
+                "&a比较器真实容量: 关\n&7只按第一页 45 格计算红石信号。\n&7不会反映后续扩容页面。\n&e点击检测全部容量");
         this.guiHoloOn = c.getString("gui.hologram-on",
                 "&a悬浮字: 开\n&7箱子上方显示容量占用文字。\n&e点击关闭");
         this.guiHoloOff = c.getString("gui.hologram-off",

@@ -32,7 +32,7 @@ Event-driven on Paper 1.21.11:
   virtual fullness -> direct comparator or comparator through one solid block
 ```
 
-The default `4 ticks × 1 item` rate is about twice vanilla hopper throughput. Comparators report the combined virtual fullness of a single or double expanded chest. Third-party pipes are not intercepted.
+The default `4 ticks × 1 item` rate is about twice vanilla hopper throughput. By default, comparators only measure the first 45-slot page so expanded capacity is not exposed through redstone. Set `comparator.real-capacity: true` to measure the complete single/double-chest virtual capacity. Third-party pipes are not intercepted.
 
 Each page adds 45 slots of virtual storage. Max pages configurable.
 
@@ -59,6 +59,7 @@ tail overflow drops on the ground.
 - **Right-click GUI** — Open a paginated virtual warehouse (6 rows, 45 slots per page + navigation bar).
 - **Double-chest merge** — Adjacent expanded chests share one GUI with stacked capacity; mixed pairs with normal chests are blocked.
 - **Redstone-ready** — Compatible with vanilla hoppers, enabled hopper minecarts, droppers, crafters and comparators on Paper 1.21.11. Comparators support both direct reads and reads through one solid block; the physical chest stays empty.
+- **Per-chest comparator mode** — A GUI toggle selects first-page-only measurement (default, 45 slots) or the full virtual capacity. Double chests share one mode and comparator output refreshes immediately.
 - **Independent hologram toggles** — Capacity usage and the anvil-assigned chest name use separate TextDisplay entities and separate per-chest GUI toggles. Either can be shown alone; global `hologram.enabled` remains the server-wide master switch.
 - **Sorting-mod friendly** — GUI navigation row is protected against one-click sorting mods (drag and double-click-collect can't sweep the nav buttons or leak items).
 - **Item lore** — The held chest item shows pages/slots info via PDC-backed lore.
@@ -119,6 +120,8 @@ gui:
   filler: true
   void-overflow-on: "..."   # overflow-void toggle button lore
   void-overflow-off: "..."
+  comparator-real-capacity-on: "..."  # per-chest full-capacity mode
+  comparator-real-capacity-off: "..." # default: first 45-slot page only
   hologram-on: "..."        # independent capacity hologram toggle
   hologram-off: "..."
   name-hologram-on: "..."   # independent custom-name hologram toggle
@@ -136,7 +139,7 @@ Requirements: JDK 21+
 
 ```bash
 ./gradlew build
-# Output: build/libs/ChestCapacity-1.1.0.jar
+# Output: build/libs/ChestCapacity-1.1.1.jar
 ```
 
 ---
@@ -162,7 +165,7 @@ Paper 1.21.11 事件驱动：
   虚拟占用率 -> 直接相邻比较器或隔一个实心方块的比较器
 ```
 
-默认 `4 tick × 1 件` 约为原版漏斗两倍速度。比较器按单箱或双联箱的完整虚拟占用率输出；第三方管道暂不接管。
+默认 `4 tick × 1 件` 约为原版漏斗两倍速度。比较器默认只检测第一页的 45 格，避免通过红石信号暴露扩容后的真实容量；设置 `comparator.real-capacity: true` 后，才按单箱或双联箱的全部虚拟槽位计算信号。第三方管道暂不接管。
 
 每页 45 格虚拟存储，最大页数可配置。
 
@@ -188,6 +191,7 @@ Paper 1.21.11 事件驱动：
 - **右键大容量 GUI** — 6 行分页界面，每页 45 格 + 底部导航行，翻页自动保存。
 - **双箱合并** — 相邻的两个扩容箱共用一个 GUI、容量叠加；与普通箱子的混合配对被阻止。
 - **红石友好** — 兼容 Paper 1.21.11 原版普通漏斗、启用状态的漏斗矿车、投掷器、自动合成器和比较器；比较器支持直接读取及隔一个实心方块读取，物理箱不保存隐藏物品。
+- **每箱比较器模式** — GUI 底栏可切换“只检测第一页”或“检测全部虚拟容量”；默认只检测第一页 45 格，双联箱共用状态，点击后立即刷新比较器。
 - **独立悬浮字开关** — 容量占用与铁砧命名分别使用独立的 TextDisplay 和 GUI 开关，任意一个都能单独显示；全局 `hologram.enabled` 仍作为服务器总开关。
 - **兼容一键整理 mod** — GUI 底部导航行受保护，整理 mod 的拖拽分发与双击收集无法卷走导航按钮或漏物品。
 - **物品悬停** — 手持扩容箱物品时 lore 显示容量、页数、使用说明。
@@ -248,6 +252,8 @@ gui:
   filler: true
   void-overflow-on: "..."   # 溢出销毁开关按钮文案
   void-overflow-off: "..."
+  comparator-real-capacity-on: "..."  # 每箱检测全部容量
+  comparator-real-capacity-off: "..." # 默认只检测第一页45格
   hologram-on: "..."        # 独立的容量悬浮字开关(默认关)
   hologram-off: "..."
   name-hologram-on: "..."   # 独立的名字悬浮字开关(默认关)
@@ -265,5 +271,5 @@ item:
 
 ```bash
 ./gradlew build
-# 输出: build/libs/ChestCapacity-1.0.11.jar
+# 输出: build/libs/ChestCapacity-1.1.0.jar
 ```

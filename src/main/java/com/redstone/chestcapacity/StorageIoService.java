@@ -147,7 +147,9 @@ public final class StorageIoService implements Listener {
 
             if (viewed) refreshViews(view);
             if (changed || beforeUsed != view.usedStacks()) holograms.syncFor(view);
-            if (changed || beforeSignal != view.comparatorSignal()) comparators.refresh(view);
+            if (changed || beforeSignal != view.comparatorSignal()) {
+                comparators.refresh(view);
+            }
         }
     }
 

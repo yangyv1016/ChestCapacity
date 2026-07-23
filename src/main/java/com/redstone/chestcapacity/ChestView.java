@@ -163,19 +163,24 @@ public final class ChestView {
         return result;
     }
 
-    /** 按原版容器公式计算整个单箱/双联虚拟仓库的比较器输入信号。 */
+    /**
+     * 按原版容器公式计算比较器输入信号。
+     * 箱级开关关闭时只测量逻辑第一页，避免通过信号暴露扩容后的真实容量。
+     */
     public int comparatorSignal() {
+        int measuredSlots = comparatorRealCapacity()
+                ? capacity
+                : Math.min(capacity, PluginConfig.SLOTS_PER_PAGE);
         double fullness = 0.0;
         boolean nonEmpty = false;
-        for (ChestData segment : segments) {
-            for (ItemStack stack : segment.slots()) {
-                if (stack == null || stack.getType().isAir()) continue;
-                nonEmpty = true;
-                fullness += (double) stack.getAmount() / Math.max(1, stack.getMaxStackSize());
-            }
+        for (int slot = 0; slot < measuredSlots; slot++) {
+            ItemStack stack = getSlot(slot);
+            if (stack == null || stack.getType().isAir()) continue;
+            nonEmpty = true;
+            fullness += (double) stack.getAmount() / Math.max(1, stack.getMaxStackSize());
         }
-        if (!nonEmpty || capacity <= 0) return 0;
-        return Math.min(15, 1 + (int) Math.floor(14.0 * fullness / capacity));
+        if (!nonEmpty || measuredSlots <= 0) return 0;
+        return Math.min(15, 1 + (int) Math.floor(14.0 * fullness / measuredSlots));
     }
 
     /** 深拷贝完整逻辑仓库的非空内容，供整理等批处理脱离底层数组运算。 */
@@ -222,6 +227,18 @@ public final class ChestView {
     public boolean toggleVoidOverflow() {
         boolean next = !voidOverflow();
         for (ChestData d : segments) d.setVoidOverflow(next);
+        return next;
+    }
+
+    /** 比较器容量模式：双联两半统一设置，任一旧数据为开启即视为开启。 */
+    public boolean comparatorRealCapacity() {
+        for (ChestData d : segments) if (d.comparatorRealCapacity()) return true;
+        return false;
+    }
+
+    public boolean toggleComparatorRealCapacity() {
+        boolean next = !comparatorRealCapacity();
+        for (ChestData d : segments) d.setComparatorRealCapacity(next);
         return next;
     }
 

@@ -31,6 +31,8 @@ public final class ChestData {
     private String customName;
     // 名字悬浮字显示开关：默认关，与容量悬浮字开关相互独立。
     private boolean nameShown;
+    // 比较器真实容量开关：默认关。关闭时只测量逻辑第一页，开启时测量全部虚拟槽位。
+    private boolean comparatorRealCapacity;
 
     public ChestData(int pages) {
         this.pages = Math.max(1, pages);
@@ -60,6 +62,9 @@ public final class ChestData {
     public void setNameShown(boolean v) { this.nameShown = v; }
     /** 翻转名字悬浮字开关，返回翻转后的新状态。 */
     public boolean toggleNameShown() { this.nameShown = !this.nameShown; return this.nameShown; }
+
+    public boolean comparatorRealCapacity() { return comparatorRealCapacity; }
+    public void setComparatorRealCapacity(boolean v) { this.comparatorRealCapacity = v; }
 
     public ItemStack getSlot(int index) {
         return (index >= 0 && index < slots.length) ? slots[index] : null;
@@ -159,13 +164,14 @@ public final class ChestData {
         return copy;
     }
 
-    /** 把自身写入给定配置节：pages / void-overflow / hologram-shown / name / name-shown / contents。 */
+    /** 把自身写入给定配置节：容量、箱级开关、自定义名字与库存内容。 */
     public void writeTo(ConfigurationSection sec) {
         sec.set("pages", pages);
         sec.set("void-overflow", voidOverflow);
         sec.set("hologram-shown", hologramShown);
         sec.set("custom-name", customName);
         sec.set("name-shown", nameShown);
+        sec.set("comparator-real-capacity", comparatorRealCapacity);
         sec.set("contents", snapshotContents());
     }
 
@@ -177,6 +183,7 @@ public final class ChestData {
         data.hologramShown = sec.getBoolean("hologram-shown", false);  // 默认关闭
         data.setCustomName(sec.getString("custom-name", null));
         data.nameShown = sec.getBoolean("name-shown", false);          // 默认关闭
+        data.comparatorRealCapacity = sec.getBoolean("comparator-real-capacity", false);
         List<?> list = sec.getList("contents");
         if (list != null) {
             int n = Math.min(list.size(), data.slots.length);
