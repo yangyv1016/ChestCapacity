@@ -10,7 +10,6 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,7 +19,11 @@ import java.util.Map;
  *   物理非空槽 occupied 与阈值区间的关系决定搬运方向：
  *     occupied > high  ->  下沉：把物理格多余物品塞进虚拟存储(ChestData.push)
  *     occupied < low   ->  补货：从虚拟存储抽物品补进物理格(ChestData.pull)
- *     low..high        ->  不动(滞回带，避免每 tick 来回震荡)
+ *     low..high        ->  压缩：保留缓冲槽，但把每槽超过 refill-batch 的部分下沉
+ *
+ *   “压缩”是输入与输出共用同一物理接口的关键：漏斗持续向同一槽堆叠时，
+ *   非空槽数不会增加；若只按 occupied 判断，该槽会暗中攒满一整组且 GUI 不可见。
+ *   默认 refill-batch=1，因此每个缓冲槽只留 1 件给原版漏斗抽取，其余都进入可见虚拟库存。
  *
  *   阈值区间覆盖三种红石语义：
  *     low=0,  high=0   => 尽量清空物理格 => 无限吃货箱(只进不出)
@@ -102,16 +105,58 @@ public final class TransferService {
      * 让单个箱子的物理库存回到滞回带 [low, high] 内, 靠拢一步。
      * 返回是否发生了内容变化(用于刷新悬浮文字)。
      *
-     *   occupied > high -> 下沉多余到 high(上游塞满 -> 腾格给漏斗继续塞)
-     *   occupied < low  -> 补货到 low   (下游抽空 -> 补回物理格给漏斗继续抽)
-     *   low..high       -> 不动(滞回, 避免震荡)
-     * low=high 时退化为旧的单一水位行为, 与旧配置一致。
+     *   occupied > high -> 下沉整槽直到 high(上游塞入了新槽)
+     *   occupied < low  -> 补货到 low(下游抽空后恢复输出缓冲)
+     *   low..high       -> 压缩缓冲槽中过量物品(上游向已有槽继续堆叠)
+     *
+     * 仅控制非空槽数量是不完整的：例如 high=1 时，漏斗可把唯一缓冲槽从 1 件
+     * 堆到 64 件，occupied 始终仍为 1。压缩步骤把超过 refill-batch 的部分下沉，
+     * 使物理层只保留可供漏斗继续抽取的最小缓冲。
      */
     private boolean balanceOne(Inventory physical, ChestData data) {
         int occupied = countNonEmpty(physical);
         if (occupied > config.keepFilledHigh) return sink(physical, data, occupied - config.keepFilledHigh);
         if (occupied < config.keepFilledLow) return source(physical, data, config.keepFilledLow - occupied);
-        return false;
+        return trimBufferedStacks(physical, data);
+    }
+
+    /**
+     * 将滞回带内每个物理缓冲槽压到 refill-batch 件。
+     *
+     * 只移动超出部分，不清空槽，因此不会破坏 low 所要求的输出缓冲；虚拟存储
+     * 放不下时保留原物品，开启溢出销毁时则只销毁超出的部分。
+     */
+    private boolean trimBufferedStacks(Inventory physical, ChestData data) {
+        int budget = config.transferBatchPerChest;
+        int keep = config.refillBatch;
+        boolean changed = false;
+        ItemStack[] contents = physical.getContents();
+        for (int i = 0; i < contents.length && budget > 0; i++) {
+            ItemStack current = contents[i];
+            if (current == null || current.getType().isAir() || current.getAmount() <= keep) continue;
+
+            int originalAmount = current.getAmount();
+            ItemStack excess = current.clone();
+            excess.setAmount(originalAmount - keep);
+            ItemStack rest = data.push(excess);
+            int moved = excess.getAmount() - (rest == null ? 0 : rest.getAmount());
+
+            if (moved > 0) {
+                ItemStack retained = current.clone();
+                retained.setAmount(originalAmount - moved);
+                physical.setItem(i, retained);
+                changed = true;
+            }
+
+            if (rest != null && data.voidOverflow()) {
+                ItemStack retained = current.clone();
+                retained.setAmount(keep);
+                physical.setItem(i, retained);
+                changed = true;
+            }
+            budget--;
+        }
+        return changed;
     }
 
     /** 下沉：把物理格里的物品搬进虚拟存储，直到腾出 slotsToFree 个槽或达到限流。 */

@@ -22,16 +22,17 @@ public final class PluginConfig {
 
     // 红石水位缓冲：滞回双阈值 [low, high]
     //   occupied < low  -> 补货到 low(下游漏斗抽空了, 从虚拟存储补回物理格)
-    //   occupied > high -> 下沉到 high(上游漏斗塞满了, 多余下沉进虚拟存储)
-    //   low..high       -> 不动(滞回带, 避免每 tick 来回震荡)
-    // 兼容旧配置: 只写了 keep-filled-slots(单水位)时 low=high=该值, 退化为旧行为。
+    //   occupied > high -> 下沉到 high(上游漏斗塞入了新的非空槽)
+    //   low..high       -> 保留这些缓冲槽，但下沉每槽超过 refillBatch 的部分
+    // 兼容旧配置: 只写了 keep-filled-slots(单水位)时 low=high=该值。
     public final boolean bufferEnabled;
     public final int keepFilledLow;
     public final int keepFilledHigh;
     public final long transferIntervalTicks;
     public final int transferBatchPerChest;
-    // 补货粒度：一次从虚拟存储抽多少个补进物理格。默认 1 = GUI 逐个减少(贴合原版漏斗视觉);
-    // 调大提升高速/多漏斗并联的吞吐, 但 GUI 扣减会更"跳"(一次少一批)。
+    // 补货/缓冲粒度：一次从虚拟存储补多少件，同时也是每个物理缓冲槽最多保留的件数。
+    // 默认 1 = 物理层每槽只留1件供原版漏斗抽取，其余立即下沉到GUI可见的虚拟存储；
+    // 调大可提升高速/多漏斗并联的吞吐，但会有更多物品暂存在GUI不可见的物理缓冲中。
     public final int refillBatch;
 
     // 落盘
