@@ -45,6 +45,7 @@ public final class StorageIoService implements Listener {
 
     private BukkitTask task;
     private long ticks;
+    private final Set<String> initializedComparatorViews = new HashSet<>();
 
     public StorageIoService(Plugin plugin, PluginConfig config, VirtualStore store,
                             ChestViewResolver resolver, ChestGui gui,
@@ -128,6 +129,7 @@ public final class StorageIoService implements Listener {
             if (!isLoadedExpandedChest(block)) continue;
             ChestView view = resolver.resolve(block);
             if (view == null || !processedViews.add(view.blockKeys().get(0))) continue;
+            boolean initializeComparator = initializedComparatorViews.add(view.blockKeys().get(0));
 
             int beforeSignal = view.comparatorSignal();
             int beforeUsed = view.usedStacks();
@@ -147,7 +149,7 @@ public final class StorageIoService implements Listener {
 
             if (viewed) refreshViews(view);
             if (changed || beforeUsed != view.usedStacks()) holograms.syncFor(view);
-            if (changed || beforeSignal != view.comparatorSignal()) {
+            if (initializeComparator || changed || beforeSignal != view.comparatorSignal()) {
                 comparators.refresh(view);
             }
         }

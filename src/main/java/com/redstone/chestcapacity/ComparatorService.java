@@ -7,6 +7,7 @@ import org.bukkit.block.data.type.Comparator;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.plugin.Plugin;
 
@@ -21,10 +22,12 @@ public final class ComparatorService implements Listener {
 
     private final Plugin plugin;
     private final ChestViewResolver resolver;
+    private final ComparatorOutputBridge outputBridge;
 
     public ComparatorService(Plugin plugin, ChestViewResolver resolver) {
         this.plugin = plugin;
         this.resolver = resolver;
+        this.outputBridge = new ComparatorOutputBridge(plugin);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -37,14 +40,19 @@ public final class ComparatorService implements Listener {
         ChestView view = source == null ? null : resolver.resolve(source);
         if (view == null) return;
 
-        int input = view.comparatorSignal();
-        int side = Math.max(
-                comparatorBlock.getRelative(leftOf(data.getFacing())).getBlockPower(),
-                comparatorBlock.getRelative(rightOf(data.getFacing())).getBlockPower());
-        int output = data.getMode() == Comparator.Mode.SUBTRACT
-                ? Math.max(0, input - side)
-                : (input >= side ? input : 0);
+        int output = outputSignal(comparatorBlock, data, view.comparatorSignal());
         event.setNewCurrent(output);
+        plugin.getServer().getScheduler().runTask(plugin,
+                () -> projectOutput(comparatorBlock));
+    }
+
+    /** 比较器后放置时，下一 tick 从虚拟库存建立初始输出。 */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onComparatorPlace(BlockPlaceEvent event) {
+        if (event.getBlockPlaced().getType() != Material.COMPARATOR) return;
+        Block comparator = event.getBlockPlaced();
+        plugin.getServer().getScheduler().runTask(plugin,
+                () -> projectOutput(comparator));
     }
 
     /** 在虚拟内容变化后立即刷新，并在下一 tick 再确认一次红石状态。 */
@@ -89,7 +97,26 @@ public final class ComparatorService implements Listener {
                 || !(candidate.getBlockData() instanceof Comparator data)) return;
         Block source = inputContainerOf(candidate, data);
         if (source == null || !sameBlock(source, chest)) return;
-        candidate.setBlockData(candidate.getBlockData(), true);
+        projectOutput(candidate);
+    }
+
+    private void projectOutput(Block comparatorBlock) {
+        if (comparatorBlock.getType() != Material.COMPARATOR
+                || !(comparatorBlock.getBlockData() instanceof Comparator data)) return;
+        Block source = inputContainerOf(comparatorBlock, data);
+        ChestView view = source == null ? null : resolver.resolve(source);
+        if (view == null) return;
+        outputBridge.write(comparatorBlock,
+                outputSignal(comparatorBlock, data, view.comparatorSignal()));
+    }
+
+    private static int outputSignal(Block comparatorBlock, Comparator data, int input) {
+        int side = Math.max(
+                comparatorBlock.getRelative(leftOf(data.getFacing())).getBlockPower(),
+                comparatorBlock.getRelative(rightOf(data.getFacing())).getBlockPower());
+        return data.getMode() == Comparator.Mode.SUBTRACT
+                ? Math.max(0, input - side)
+                : (input >= side ? input : 0);
     }
 
     private static BlockFace leftOf(BlockFace facing) {
