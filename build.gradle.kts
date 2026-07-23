@@ -5,7 +5,7 @@ plugins {
 group = "com.redstone"
 // 版本优先取环境变量 PLUGIN_VERSION（CI 在 tag 时注入 tag 名，去掉前缀 v），
 // 本地无该变量时回退到默认值。这样 jar 名 (ChestCapacity-<version>.jar) 与发布 tag 保持一致。
-version = (System.getenv("PLUGIN_VERSION") ?: "1.0.11").removePrefix("v")
+version = (System.getenv("PLUGIN_VERSION") ?: "1.1.0").removePrefix("v")
 
 repositories {
     maven("https://maven.aliyun.com/repository/public")

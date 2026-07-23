@@ -18,24 +18,23 @@ import java.util.Set;
  *
  * 布局（6 行 54 格）：
  *   行 0..4 (槽 0..44)  = 当前页内容，映射到 view 全局槽 [page*45, page*45+45)
- *   行 5   (槽 45..53)  = 导航行：45 上一页, 47 溢出销毁, 49 页码, 51 悬浮字, 53 下一页
+ *   行 5   (槽 45..53)  = 导航行：45 上一页, 46 整理, 47 溢出销毁, 49 页码,
+ *                            51 容量悬浮字, 52 名字悬浮字, 53 下一页
  *
  * 单/双联无感知：GUI 只跟 view 的全局槽打交道，段路由封在 ChestView 内。
  *   双联 = view 有两段（LEFT 在前），总页数与容量自然叠加，翻页连续跨越两半。
  *
  * 实时镜像模型：
  *   view 背后的 ChestData 是唯一权威，GUI 界面只是它“当前页”的实时镜像。
- *   每个搬运 tick 对打开着的界面做有序对账（见 TransferService.tick）：
- *     1. absorbEdits : 界面 --writeBack--> view   （玩家存/取即时入账）
- *     2. 搬运照常跑   : 物理格 <---> 各段 ChestData（漏斗喂的货下沉进来）
- *     3. refreshViews: view --renderPage--> 界面   （玩家看到堆叠增减 = 流入流出）
- *   三步串行且都在主线程，tick 结尾界面与权威恒一致，不存在过期快照覆盖。
+ *   StorageIoService 每 tick 先吸收打开界面的编辑，再执行漏斗 I/O，最后回显最新数据，
+ *   因而玩家、普通漏斗、漏斗矿车和比较器始终读取同一份逻辑库存。
  */
 public final class ChestGui {
 
     private static final int PAGE_SLOTS = PluginConfig.SLOTS_PER_PAGE; // 45
     private static final int NAV_ROW_START = 45;
     private static final int SLOT_PREV = 45;
+    private static final int SLOT_SORT = 46;        // 整个逻辑仓库整理按钮
     private static final int SLOT_VOID = 47;        // 溢出销毁开关按钮
     private static final int SLOT_INDICATOR = 49;
     private static final int SLOT_HOLO = 51;        // 容量悬浮字显示开关按钮
@@ -45,15 +44,18 @@ public final class ChestGui {
     private final PluginConfig config;
     private final VirtualStore store;
     private final HologramManager holograms;
+    private final ComparatorService comparators;
 
     // 打开中的界面注册表：箱子坐标键 -> 正在查看它的 holder 集合。
     // 双联时 view 的两个段 key 都指向同一批 holder，搬运 tick 用任一 key 都能定位对账。
     private final Map<String, Set<ChestGuiHolder>> openViews = new HashMap<>();
 
-    public ChestGui(PluginConfig config, VirtualStore store, HologramManager holograms) {
+    public ChestGui(PluginConfig config, VirtualStore store,
+                    HologramManager holograms, ComparatorService comparators) {
         this.config = config;
         this.store = store;
         this.holograms = holograms;
+        this.comparators = comparators;
     }
 
     /** 打开指定 view 的某一页。chestKey = 规范键（双联=左半），用于标题/日志。 */
@@ -70,6 +72,7 @@ public final class ChestGui {
 
         renderPage(inv, view, page);
         renderNav(inv, page, view.totalPages());
+        renderSortButton(inv);
         renderVoidButton(inv, view);
         renderHoloButton(inv, view);
         renderNameHoloButton(inv, view);
@@ -105,6 +108,11 @@ public final class ChestGui {
                         .replace("%pages%", Integer.toString(pages)))));
     }
 
+    /** 整理按钮固定存在；整理范围是单箱/双联的全部虚拟页面。 */
+    private void renderSortButton(Inventory inv) {
+        inv.setItem(SLOT_SORT, labeled(Material.HOPPER, config.guiSort));
+    }
+
     /** 单独渲染溢出销毁按钮：开=红色火焰弹, 关=绿色屏障。文案首行为名, 其余行为 lore。 */
     private void renderVoidButton(Inventory inv, ChestView view) {
         boolean on = view.voidOverflow();
@@ -121,7 +129,7 @@ public final class ChestGui {
         inv.setItem(SLOT_HOLO, labeled(icon, text));
     }
 
-    /** 单独渲染名字悬浮字开关：开=命名牌, 关=纸张。实际显示还受容量悬浮字总开关约束。 */
+    /** 单独渲染名字悬浮字开关：开=命名牌, 关=纸张；与容量悬浮字状态无关。 */
     private void renderNameHoloButton(Inventory inv, ChestView view) {
         boolean on = view.nameShown();
         Material icon = on ? Material.NAME_TAG : Material.PAPER;
@@ -150,16 +158,26 @@ public final class ChestGui {
 
     public int slotPrev() { return SLOT_PREV; }
     public int slotNext() { return SLOT_NEXT; }
+    public int slotSort() { return SLOT_SORT; }
     public int slotVoid() { return SLOT_VOID; }
     public int slotHolo() { return SLOT_HOLO; }
     public int slotNameHolo() { return SLOT_NAME_HOLO; }
 
     /**
-     * 处理导航行点击：翻页、切换溢出销毁、切换悬浮字。
+     * 处理导航行点击：整理全仓库、翻页、切换溢出销毁、切换悬浮字。
      * 内容区点击不经过这里（放行给原版）。
      */
     public void handleNavClick(Player player, ChestGuiHolder holder, int rawSlot) {
         ChestView view = holder.view();
+        if (rawSlot == SLOT_SORT) {
+            absorbEdits(holder.chestKey());
+            view.replaceContents(ChestSorter.sortAndCompact(view.snapshotContents()));
+            for (String key : view.blockKeys()) refreshViews(key);
+            holograms.syncFor(view);
+            comparators.refresh(view);
+            store.saveAsync();
+            return;
+        }
         if (rawSlot == SLOT_VOID) {                  // 切换溢出销毁开关（双联两半统一置位）
             view.toggleVoidOverflow();
             Inventory inv = holder.getInventory();
@@ -171,11 +189,11 @@ public final class ChestGui {
             view.toggleHologramShown();
             Inventory inv = holder.getInventory();
             if (inv != null) renderHoloButton(inv, view);
-            holograms.syncFor(view);                 // 主开关关时会一并清除名字实体
+            holograms.syncFor(view);
             store.saveAsync();
             return;
         }
-        if (rawSlot == SLOT_NAME_HOLO) {             // 切换名字悬浮字（主开关关闭时仍保存状态但不显示）
+        if (rawSlot == SLOT_NAME_HOLO) {             // 名字悬浮字独立切换（仍受全局总开关约束）
             view.toggleNameShown();
             Inventory inv = holder.getInventory();
             if (inv != null) renderNameHoloButton(inv, view);
@@ -194,6 +212,7 @@ public final class ChestGui {
         writeBack(holder);
         unregisterView(holder);
         holograms.syncFor(holder.view());
+        comparators.refresh(holder.view());
     }
 
     /** 该箱子当前是否有人打开着界面（搬运 tick 用来决定是否需要对账）。 */

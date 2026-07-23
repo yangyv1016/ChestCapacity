@@ -3,7 +3,7 @@ version: '${version}'
 main: com.redstone.chestcapacity.ChestCapacityPlugin
 api-version: '1.21'
 authors: [redstone]
-description: 可扩容箱子，物理27格做红石接口，扩容存储走虚拟仓库，插件按水位缓冲搬运，面向红石服。
+description: 可扩容虚拟仓库，兼容 Paper 1.21.11 原版漏斗、漏斗矿车、投掷器、自动合成器、比较器和双联箱。
 
 commands:
   chestcap:

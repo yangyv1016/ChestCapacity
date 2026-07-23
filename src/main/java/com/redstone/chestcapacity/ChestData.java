@@ -15,7 +15,7 @@ import java.util.List;
  *   放置/调整时二者由上层保持同步。
  *
  * slots 数组长度 = pages * SLOTS_PER_PAGE，元素可为 null（空格）。
- * 这是“扩容出来”的容量，不含物理 27 格（那 27 格走原版红石接口）。
+ * 它是箱子的唯一库存真相；物理箱只保留方块身份，不参与正常物品存储。
  */
 public final class ChestData {
 
@@ -29,7 +29,7 @@ public final class ChestData {
     private boolean hologramShown;
     // 箱子名字：放置时只继承扩容箱物品的铁砧自定义名；null/空 表示未命名。
     private String customName;
-    // 名字悬浮字显示开关：默认关。仅在容量悬浮字(hologramShown)也开启时才实际显示(联动约束)。
+    // 名字悬浮字显示开关：默认关，与容量悬浮字开关相互独立。
     private boolean nameShown;
 
     public ChestData(int pages) {
@@ -111,24 +111,6 @@ public final class ChestData {
         ItemStack rest = stack.clone();
         rest.setAmount(amount);
         return rest;
-    }
-
-    /**
-     * 从存储里取出最多 limit 件的一个堆叠（用于“补货”搬运）。
-     * 返回 null 表示存储已空。
-     */
-    public ItemStack pull(int limit) {
-        for (int i = 0; i < slots.length; i++) {
-            ItemStack s = slots[i];
-            if (s == null) continue;
-            int take = Math.min(limit, s.getAmount());
-            ItemStack out = s.clone();
-            out.setAmount(take);
-            if (take >= s.getAmount()) slots[i] = null;
-            else s.setAmount(s.getAmount() - take);
-            return out;
-        }
-        return null;
     }
 
     /**

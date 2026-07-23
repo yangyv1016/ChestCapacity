@@ -121,6 +121,88 @@ public final class ChestView {
         segments.get(seg).setSlot(globalSlot - offset[seg], stack);
     }
 
+    /** 将物品按段顺序写入整个逻辑仓库，返回无法容纳的剩余部分。 */
+    public ItemStack push(ItemStack stack) {
+        ItemStack rest = stack == null ? null : stack.clone();
+        for (ChestData segment : segments) {
+            if (rest == null) break;
+            rest = segment.push(rest);
+        }
+        return rest;
+    }
+
+    /** 返回当前逻辑仓库还能接收多少件指定物品，不改变存储。 */
+    public int acceptanceOf(ItemStack stack) {
+        if (stack == null || stack.getType().isAir()) return 0;
+        long space = 0;
+        int max = Math.max(1, stack.getMaxStackSize());
+        for (ChestData segment : segments) {
+            for (ItemStack stored : segment.slots()) {
+                if (stored == null || stored.getType().isAir()) space += max;
+                else if (stored.isSimilar(stack)) space += Math.max(0, max - stored.getAmount());
+                if (space >= Integer.MAX_VALUE) return Integer.MAX_VALUE;
+            }
+        }
+        return (int) space;
+    }
+
+    /** 从指定全局槽取出最多 limit 件，槽为空或越界时返回 null。 */
+    public ItemStack pullFromSlot(int globalSlot, int limit) {
+        if (limit <= 0) return null;
+        ItemStack current = getSlot(globalSlot);
+        if (current == null || current.getType().isAir()) return null;
+        int take = Math.min(limit, current.getAmount());
+        ItemStack result = current.clone();
+        result.setAmount(take);
+        if (take >= current.getAmount()) setSlot(globalSlot, null);
+        else {
+            ItemStack retained = current.clone();
+            retained.setAmount(current.getAmount() - take);
+            setSlot(globalSlot, retained);
+        }
+        return result;
+    }
+
+    /** 按原版容器公式计算整个单箱/双联虚拟仓库的比较器输入信号。 */
+    public int comparatorSignal() {
+        double fullness = 0.0;
+        boolean nonEmpty = false;
+        for (ChestData segment : segments) {
+            for (ItemStack stack : segment.slots()) {
+                if (stack == null || stack.getType().isAir()) continue;
+                nonEmpty = true;
+                fullness += (double) stack.getAmount() / Math.max(1, stack.getMaxStackSize());
+            }
+        }
+        if (!nonEmpty || capacity <= 0) return 0;
+        return Math.min(15, 1 + (int) Math.floor(14.0 * fullness / capacity));
+    }
+
+    /** 深拷贝完整逻辑仓库的非空内容，供整理等批处理脱离底层数组运算。 */
+    public List<ItemStack> snapshotContents() {
+        List<ItemStack> contents = new java.util.ArrayList<>();
+        for (int i = 0; i < capacity; i++) {
+            ItemStack stack = getSlot(i);
+            if (stack != null && !stack.getType().isAir()) contents.add(stack.clone());
+        }
+        return contents;
+    }
+
+    /**
+     * 用连续物品序列替换整个逻辑仓库，剩余槽位清空。
+     * 调用方必须保证内容不超过容量；复制 ItemStack，避免外部后续修改污染权威数据。
+     */
+    public void replaceContents(List<ItemStack> contents) {
+        if (contents.size() > capacity) {
+            throw new IllegalArgumentException("整理结果超过仓库容量");
+        }
+        for (ChestData segment : segments) segment.clear();
+        for (int i = 0; i < contents.size(); i++) {
+            ItemStack stack = contents.get(i);
+            setSlot(i, stack == null ? null : stack.clone());
+        }
+    }
+
     /** 合计已用堆叠数（供合并悬浮字显示）。 */
     public int usedStacks() {
         int n = 0;

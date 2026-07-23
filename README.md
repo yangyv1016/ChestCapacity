@@ -5,7 +5,7 @@
 
 ---
 
-# ChestCapacity — 可扩容箱子插件（Paper 1.21）
+# ChestCapacity — 可扩容箱子插件（Paper 1.21.11）
 
 [English](#english) | [中文](#中文)
 
@@ -13,25 +13,26 @@
 
 ## English
 
-A Paper plugin that gives chests expandable storage capacity with redstone I/O support. Designed for redstone-heavy servers where hoppers work against large virtual inventories through an automatic water-level buffer.
+A Paper plugin that gives chests expandable virtual storage with direct redstone I/O support. The virtual warehouse is the only inventory truth, so no hidden buffer item remains inside the physical chest.
 
 ### How It Works
 
 ```
-Physical 27 slots = Redstone interface (vanilla hopper rules, plugin zero takeover)
-Virtual storage    = Expanded capacity stored in plugin data file
+Virtual storage = GUI contents, hopper contents and comparator source of truth
+Physical chest  = identity/placement only; kept empty by the plugin
 
-The plugin runs a periodic task to keep physical slots at a target "water level":
-  occupied > target  →  sink excess into virtual storage
-  occupied < target  →  source items from virtual storage back to physical
-  occupied = target  →  do nothing (hysteresis, avoid oscillation)
+Every 4 ticks by default:
+  pointing hopper -> virtual storage
+  virtual storage -> hopper below
+  virtual storage -> enabled hopper minecart below
+
+Event-driven on Paper 1.21.11:
+  dropper -> virtual storage
+  crafter -> virtual storage
+  virtual fullness -> direct comparator or comparator through one solid block
 ```
 
-One parameter `keep-filled-slots` covers three use cases:
-- `keep-filled-slots = 0`   → bottomless eater (hoppers keep feeding in)
-- `keep-filled-slots = 27`  → endless supplier (hoppers keep pulling out)
-- `0 < n < 27`              → bidirectional buffer
-- `buffer-enabled = false`  → pure GUI mega-chest (no redstone automation)
+The default `4 ticks × 1 item` rate is about twice vanilla hopper throughput. Comparators report the combined virtual fullness of a single or double expanded chest. Third-party pipes are not intercepted.
 
 Each page adds 45 slots of virtual storage. Max pages configurable.
 
@@ -57,8 +58,8 @@ tail overflow drops on the ground.
 - **Place-to-activate** — Drop the special chest item; it immediately gains capacity following config defaults. No commands needed for daily use.
 - **Right-click GUI** — Open a paginated virtual warehouse (6 rows, 45 slots per page + navigation bar).
 - **Double-chest merge** — Adjacent expanded chests share one GUI with stacked capacity; mixed pairs with normal chests are blocked.
-- **Redstone-ready** — Vanilla hoppers interact with the physical 27 slots; the plugin silently moves items in/out of the large virtual storage.
-- **Per-chest hologram toggle** — TextDisplay above chest shows used/total capacity. Off by default; each chest has its own toggle button in the GUI. Global `hologram.enabled` is the master switch (both must be on).
+- **Redstone-ready** — Compatible with vanilla hoppers, enabled hopper minecarts, droppers, crafters and comparators on Paper 1.21.11. Comparators support both direct reads and reads through one solid block; the physical chest stays empty.
+- **Independent hologram toggles** — Capacity usage and the anvil-assigned chest name use separate TextDisplay entities and separate per-chest GUI toggles. Either can be shown alone; global `hologram.enabled` remains the server-wide master switch.
 - **Sorting-mod friendly** — GUI navigation row is protected against one-click sorting mods (drag and double-click-collect can't sweep the nav buttons or leak items).
 - **Item lore** — The held chest item shows pages/slots info via PDC-backed lore.
 - **Graceful break** — Breaking drops an empty chest item with capacity NBT + virtual contents are dropped in a rate-limited stream (anti-lag). Explosions (TNT/creeper/bed) are handled too, so holograms never leak.
@@ -93,11 +94,12 @@ All behavior is in `plugins/ChestCapacity/config.yml`:
 default-pages: 1          # default page count when placed
 max-pages: 54             # hard cap
 
-buffer-enabled: true      # enable water-level buffer
-keep-filled-slots: 0      # target filled slots in physical 27 (0~27)
-
-transfer-interval-ticks: 2
-transfer-batch-per-chest: 5
+io:
+  enabled: true
+  interval-ticks: 4        # about 2x vanilla hopper throughput
+  items-per-transfer: 1
+  hoppers: true
+  hopper-minecarts: true
 
 save-interval-ticks: 1200 # async save every 60s
 
@@ -117,8 +119,10 @@ gui:
   filler: true
   void-overflow-on: "..."   # overflow-void toggle button lore
   void-overflow-off: "..."
-  hologram-on: "..."        # per-chest hologram toggle button lore
+  hologram-on: "..."        # independent capacity hologram toggle
   hologram-off: "..."
+  name-hologram-on: "..."   # independent custom-name hologram toggle
+  name-hologram-off: "..."
 
 item:
   name: "&6Expanded Chest"
@@ -132,32 +136,33 @@ Requirements: JDK 21+
 
 ```bash
 ./gradlew build
-# Output: build/libs/ChestCapacity-1.0.5.jar
+# Output: build/libs/ChestCapacity-1.1.0.jar
 ```
 
 ---
 
 ## 中文
 
-面向红石服的 Paper 插件，让箱子拥有可配置的扩容容量，物理 27 格作为红石接口，扩容内容走虚拟仓库，插件按"水位缓冲"自动搬运。
+面向红石服的 Paper 插件，让箱子拥有可配置的虚拟容量。虚拟仓库是 GUI、漏斗和比较器共同读取的唯一库存，物理箱始终保持为空，不再隐藏缓冲物品。
 
 ### 工作原理
 
 ```
-物理 27 格 = 红石接口（原版漏斗机制，插件零接管）
-虚拟存储    = 扩容出来的大容量，存插件数据文件
+虚拟仓库 = GUI 内容、漏斗传输和比较器信号的唯一真相
+物理箱子 = 仅保存扩容身份，插件持续保持为空
 
-插件定时任务维持物理格处于一个"目标水位"：
-  物理非空槽 > 目标  →  下沉：把多余货塞进虚拟存储
-  物理非空槽 < 目标  →  补货：从虚拟存储抽货回物理格
-  物理非空槽 = 目标  →  不动（滞回，避免来回震荡）
+默认每 4 tick：
+  指向箱子的普通漏斗 -> 虚拟仓库
+  虚拟仓库 -> 箱子下方普通漏斗
+  虚拟仓库 -> 箱子下方且已启用的漏斗矿车
+
+Paper 1.21.11 事件驱动：
+  投掷器 -> 虚拟仓库
+  自动合成器 -> 虚拟仓库
+  虚拟占用率 -> 直接相邻比较器或隔一个实心方块的比较器
 ```
 
-一个 `keep-filled-slots` 参数覆盖三种红石语义：
-- `keep-filled-slots = 0`   → 尽量清空物理格 => 无限吃货箱
-- `keep-filled-slots = 27`  → 尽量填满物理格 => 无限供货箱
-- `0 < n < 27`              → 双向缓冲
-- `buffer-enabled = false`  → 纯玩家 GUI 大仓库（不参与红石）
+默认 `4 tick × 1 件` 约为原版漏斗两倍速度。比较器按单箱或双联箱的完整虚拟占用率输出；第三方管道暂不接管。
 
 每页 45 格虚拟存储，最大页数可配置。
 
@@ -182,8 +187,8 @@ Requirements: JDK 21+
 - **放下即生效** — 拿起扩容箱物品放置，自动按配置扩容。不需要指令，日常不依赖指令。
 - **右键大容量 GUI** — 6 行分页界面，每页 45 格 + 底部导航行，翻页自动保存。
 - **双箱合并** — 相邻的两个扩容箱共用一个 GUI、容量叠加；与普通箱子的混合配对被阻止。
-- **红石友好** — 漏斗照常怼物理 27 格，插件后台自动在物理格与虚拟大仓库之间搬运。
-- **每箱悬浮字开关** — 箱子上方 TextDisplay 显示已用/总格数。默认关闭，每个箱子在 GUI 里有独立开关按钮。全局 `hologram.enabled` 是总开关（两者都开才显示）。
+- **红石友好** — 兼容 Paper 1.21.11 原版普通漏斗、启用状态的漏斗矿车、投掷器、自动合成器和比较器；比较器支持直接读取及隔一个实心方块读取，物理箱不保存隐藏物品。
+- **独立悬浮字开关** — 容量占用与铁砧命名分别使用独立的 TextDisplay 和 GUI 开关，任意一个都能单独显示；全局 `hologram.enabled` 仍作为服务器总开关。
 - **兼容一键整理 mod** — GUI 底部导航行受保护，整理 mod 的拖拽分发与双击收集无法卷走导航按钮或漏物品。
 - **物品悬停** — 手持扩容箱物品时 lore 显示容量、页数、使用说明。
 - **优雅破坏** — 挖掉箱子掉落带容量 NBT 的空箱（可回收），虚拟内容限速分批掉在原地（防卡服）。TNT/苦力怕/床等爆炸也会被接管，悬浮字不残留。
@@ -218,11 +223,12 @@ lp group default permission set chestcapacity.use true
 default-pages: 1          # 放置时的默认页数
 max-pages: 54             # 允许的最大页数
 
-buffer-enabled: true      # 启用水位缓冲搬运
-keep-filled-slots: 0      # 物理 27 格保留的非空槽数 (0~27)
-
-transfer-interval-ticks: 2
-transfer-batch-per-chest: 5
+io:
+  enabled: true
+  interval-ticks: 4        # 约为原版漏斗两倍速度
+  items-per-transfer: 1
+  hoppers: true
+  hopper-minecarts: true
 
 save-interval-ticks: 1200 # 异步落盘间隔(60秒)
 
@@ -242,8 +248,10 @@ gui:
   filler: true
   void-overflow-on: "..."   # 溢出销毁开关按钮文案
   void-overflow-off: "..."
-  hologram-on: "..."        # 每箱悬浮字开关按钮文案(默认关)
+  hologram-on: "..."        # 独立的容量悬浮字开关(默认关)
   hologram-off: "..."
+  name-hologram-on: "..."   # 独立的名字悬浮字开关(默认关)
+  name-hologram-off: "..."
 
 item:
   name: "&6大大大箱子"
@@ -257,5 +265,5 @@ item:
 
 ```bash
 ./gradlew build
-# 输出: build/libs/ChestCapacity-1.0.5.jar
+# 输出: build/libs/ChestCapacity-1.0.11.jar
 ```

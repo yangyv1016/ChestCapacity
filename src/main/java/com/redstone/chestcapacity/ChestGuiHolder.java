@@ -15,7 +15,8 @@ import org.bukkit.inventory.InventoryHolder;
  * chestKey 是打开入口的规范键（双联=左半），仅用于标题与日志；搬运/写回/悬浮字
  * 定位改用 view.blockKeys() 覆盖全部段。
  *
- * 注意：GUI 展示的是虚拟存储内容，不含物理 27 格。物理格由红石/漏斗和 TransferService 管。
+ * 注意：GUI 展示的是完整逻辑库存。物理箱不承载正常物品，红石 I/O 由 StorageIoService
+ * 直接与 view 交换数据，因此不会存在 GUI 不可见的缓冲物品。
  */
 public final class ChestGuiHolder implements InventoryHolder {
 

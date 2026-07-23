@@ -7,12 +7,13 @@ import org.bukkit.scheduler.BukkitTask;
  * 插件主类：只做“组装 + 生命周期”，不含业务细节。
  *
  * 数据流总览：
- *   物品(身份,pages) --放置--> 方块PDC(权威 pages) + VirtualStore(内容) + 悬浮文字
- *        ^                          |
- *        |                    TransferService 按“水位缓冲”在 物理27格 <-> VirtualStore 间搬运
- *        +----破坏(掉带pages空箱)---+  同时限速掉落 VirtualStore 内容, 清悬浮文字
+ *   物品(身份,pages) --放置--> 方块PDC(权威 pages) + VirtualStore(唯一库存) + 悬浮文字
+ *                                           |
+ *                              StorageIoService 适配原版容器红石 I/O
+ *                                           |
+ *                 漏斗 / 漏斗矿车 / 投掷器 / 自动合成器 / 比较器共享同一 ChestView
  *
- * 红石语义由全局 keep-filled-slots 一个参数统一决定, 方块不背模式。
+ * 物理箱只保留方块身份，不再承载隐藏缓冲物品。
  * 组装顺序遵循依赖方向：config/keys -> marker -> items/store/holograms -> 服务 -> 注册。
  */
 public final class ChestCapacityPlugin extends JavaPlugin {
@@ -22,9 +23,11 @@ public final class ChestCapacityPlugin extends JavaPlugin {
     private ChestMarker marker;
     private ChestItems items;
     private VirtualStore store;
+    private ChestViewResolver resolver;
     private HologramManager holograms;
+    private ComparatorService comparators;
     private ChestGui gui;
-    private TransferService transfer;
+    private StorageIoService io;
 
     private BukkitTask saveTask;
 
@@ -36,13 +39,18 @@ public final class ChestCapacityPlugin extends JavaPlugin {
         store = new VirtualStore(this);
         store.load();
 
+        resolver = new ChestViewResolver(config, marker, store);
         holograms = new HologramManager(config, keys, store);
-        gui = new ChestGui(config, store, holograms);
-        transfer = new TransferService(this, config, store, holograms, gui);
-        transfer.start();
+        comparators = new ComparatorService(this, resolver);
+        gui = new ChestGui(config, store, holograms, comparators);
+        io = new StorageIoService(this, config, store, resolver, gui, holograms, comparators);
 
         getServer().getPluginManager().registerEvents(
-                new ChestListeners(this, config, marker, items, store, gui, holograms), this);
+                new ChestListeners(this, config, marker, items, store, resolver,
+                        gui, holograms, comparators), this);
+        getServer().getPluginManager().registerEvents(io, this);
+        getServer().getPluginManager().registerEvents(comparators, this);
+        io.start();
 
         ChestCommand command = new ChestCommand(config, items);
         getCommand("chestcap").setExecutor(command);
@@ -53,14 +61,15 @@ public final class ChestCapacityPlugin extends JavaPlugin {
                 this, () -> store.saveAsync(), interval, interval);
 
         getLogger().info("ChestCapacity 已启用。默认容量 " + config.defaultPages
-                + " 页, 水位缓冲=" + (config.bufferEnabled
-                        ? "开(水位 " + config.keepFilledLow + "~" + config.keepFilledHigh + " 格)" : "关") + "。");
+                + " 页, 红石I/O=" + (config.ioEnabled
+                        ? "开(" + config.ioIntervalTicks + " tick/次, 每次 "
+                        + config.ioItemsPerTransfer + " 件)" : "关") + "。");
     }
 
     @Override
     public void onDisable() {
         if (saveTask != null) saveTask.cancel();
-        if (transfer != null) transfer.stop();
+        if (io != null) io.stop();
         if (store != null) store.saveSync();
     }
 

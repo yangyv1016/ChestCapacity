@@ -63,17 +63,24 @@ public final class HologramManager {
         Set<String> keySet = keysOf(pairing);
         World world = anyHalf.getWorld();
 
-        // 名字悬浮字严格从属于容量悬浮字：主开关/容量开关关闭时两种实体都清除。
-        if (!config.hologramEnabled || agg.segments == 0 || !agg.shown) {
+        // 全局总开关只负责统一禁用实体；容量与名字的箱级开关互不依赖。
+        if (!config.hologramEnabled || agg.segments == 0) {
             clearDisplays(anchor, keySet, world, keys.holo);
             clearDisplays(nameAnchor, keySet, world, keys.holoName);
             return;
         }
         String ownerKey = VirtualStore.keyOf(pairing.primary());
-        TextDisplay capacity = ensureSingle(anchor, keySet, ownerKey, world, keys.holo);
-        if (capacity != null) capacity.text(config.hologramComponent(agg.used, agg.capacity, agg.pages));
 
-        // 名字是独立实体，位置在容量悬浮字上方；无名字或名字开关关闭时只清名字实体。
+        if (agg.shown) {
+            TextDisplay capacity = ensureSingle(anchor, keySet, ownerKey, world, keys.holo);
+            if (capacity != null) {
+                capacity.text(config.hologramComponent(agg.used, agg.capacity, agg.pages));
+            }
+        } else {
+            clearDisplays(anchor, keySet, world, keys.holo);
+        }
+
+        // 名字使用独立实体和独立开关；容量悬浮字关闭时仍可单独显示。
         if (!agg.nameShown || agg.customName == null) {
             clearDisplays(nameAnchor, keySet, world, keys.holoName);
             return;

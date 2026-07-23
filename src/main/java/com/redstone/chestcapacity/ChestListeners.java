@@ -22,7 +22,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
@@ -30,7 +29,7 @@ import java.util.List;
  * 把各模块粘合到 Bukkit 事件上的唯一监听器。数据流的“驱动层”。
  *
  *   放置扩容箱物品 -> 物品 pages 快照进方块 PDC + VirtualStore 登记 + 挂悬浮文字
- *   右键扩容箱     -> 打开分页虚拟大仓库 GUI（物理 27 格留给红石/漏斗）
+ *   右键扩容箱     -> 打开分页虚拟大仓库 GUI（虚拟仓库是唯一库存）
  *   GUI 点击       -> 只拦导航行翻页，内容区放行原版拖拽
  *   GUI 关闭       -> 回写虚拟存储 + 刷新悬浮文字
  *   破坏扩容箱     -> 关原版掉落，改为掉带 pages 的空箱 + 限速掉落虚拟内容 + 清悬浮文字
@@ -44,19 +43,24 @@ public final class ChestListeners implements Listener {
     private final ChestMarker marker;
     private final ChestItems items;
     private final VirtualStore store;
+    private final ChestViewResolver resolver;
     private final ChestGui gui;
     private final HologramManager holograms;
+    private final ComparatorService comparators;
 
     public ChestListeners(Plugin plugin, PluginConfig config, ChestMarker marker,
-                          ChestItems items, VirtualStore store, ChestGui gui,
-                          HologramManager holograms) {
+                          ChestItems items, VirtualStore store, ChestViewResolver resolver,
+                          ChestGui gui, HologramManager holograms,
+                          ComparatorService comparators) {
         this.plugin = plugin;
         this.config = config;
         this.marker = marker;
         this.items = items;
         this.store = store;
+        this.resolver = resolver;
         this.gui = gui;
         this.holograms = holograms;
+        this.comparators = comparators;
     }
 
     // ---- 放置：物品身份 -> 方块权威 ----
@@ -106,30 +110,9 @@ public final class ChestListeners implements Listener {
         if (!(state instanceof Chest chest) || !marker.isMarked(chest)) return;
 
         event.setCancelled(true);                                    // 拦下原版物理箱界面
-        ChestPairing pairing = ChestPairing.resolve(block);
-        ChestView view = buildView(pairing);                         // 单箱=1 段, 双联=左右 2 段拼接
+        ChestView view = resolver.resolve(block);                    // 单箱=1 段, 双联=左右 2 段拼接
         if (view == null) return;                                    // 兜底: 无有效扩容段
         gui.open(event.getPlayer(), view, view.blockKeys().get(0), 0);
-    }
-
-    /**
-     * 由配对构造 GUI 视图：对每个扩容半登记/补建 ChestData 并按 LEFT-first 顺序拼成 ChestView。
-     * 普通半(理论上被 onPlace 防混合挡掉, 这里再兜底)跳过, 不纳入视图。
-     * 若无任何扩容段(极端脏态)返回 null，调用方直接放弃开界面。
-     */
-    private ChestView buildView(ChestPairing pairing) {
-        List<ChestData> segments = new ArrayList<>();
-        List<String> keys = new ArrayList<>();
-        for (Block b : pairing.blocks()) {
-            BlockState bs = b.getState(false);
-            if (!(bs instanceof Chest c) || !marker.isMarked(c)) continue;  // 跳过非扩容半
-            int pages = clampPages(marker.readPages(c, config.defaultPages));
-            String key = VirtualStore.keyOf(b);
-            segments.add(store.create(key, pages));                  // 缺失则补建(兼容旧箱)
-            keys.add(key);
-        }
-        if (segments.isEmpty()) return null;
-        return new ChestView(segments, keys);
     }
 
     // ---- GUI 点击：只拦导航行 ----
@@ -250,7 +233,7 @@ public final class ChestListeners implements Listener {
         //               合并连续内容按段序回填剩余半, 只掉落塞不下的尾端溢出。
         List<ItemStack> toDrop;
         if (partner != null && isMarkedChest(partner)) {
-            ChestView view = buildView(pairing);       // 覆盖左右两段的连续视图
+            ChestView view = resolver.resolve(block);   // 覆盖左右两段的连续视图
             toDrop = (view != null)
                     ? view.redistributeExcluding(key)  // 尾端溢出
                     : dumpRemoved(key);                // 兜底: 视图异常则整份掉落
@@ -261,7 +244,7 @@ public final class ChestListeners implements Listener {
         store.saveAsync();                             // 重分布改了剩余半内容, 立即落盘防崩服回滚
         scheduleDrop(dropAt, toDrop);                  // 限速分批掉落
 
-        if (partner != null) refreshPartnerNextTick(partner);  // 剩余半回到单箱悬浮字
+        if (partner != null) refreshPartnerNextTick(partner);  // 剩余半回到单箱展示与比较器语义
     }
 
     /** 从 store 摘出某段的全部内容为掉落列表（内容已随 remove 脱离存储）。 */
@@ -276,7 +259,10 @@ public final class ChestListeners implements Listener {
      */
     private void refreshPartnerNextTick(Block partner) {
         plugin.getServer().getScheduler().runTask(plugin, () -> {
-            if (isMarkedChest(partner)) holograms.syncBlock(partner);
+            if (!isMarkedChest(partner)) return;
+            holograms.syncBlock(partner);
+            ChestView view = resolver.resolve(partner);
+            if (view != null) comparators.refresh(view);
         });
     }
 

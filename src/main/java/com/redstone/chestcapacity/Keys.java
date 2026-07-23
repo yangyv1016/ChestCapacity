@@ -8,7 +8,7 @@ import org.bukkit.plugin.Plugin;
  * 方块 TileState 与物品 ItemMeta 复用同一个键：pages（扩容页数）。
  *
  * 设计约束：方块只承载“它被扩容成了多大”这一件事，不背模式等额外功能。
- * 红石行为由全局“水位缓冲”策略统一决定，不写进单个方块。
+ * 红石 I/O 策略是全局配置，物品内容统一存放在 VirtualStore。
  */
 public final class Keys {
 

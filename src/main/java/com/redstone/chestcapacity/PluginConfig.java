@@ -14,26 +14,18 @@ import java.util.List;
 public final class PluginConfig {
 
     public static final int SLOTS_PER_PAGE = 45;   // 每页可用格(底行9格留给导航)
-    public static final int PHYSICAL_SLOTS = 27;   // 物理箱子槽位数
 
     // 容量
     public final int defaultPages;
     public final int maxPages;
 
-    // 红石水位缓冲：滞回双阈值 [low, high]
-    //   occupied < low  -> 补货到 low(下游漏斗抽空了, 从虚拟存储补回物理格)
-    //   occupied > high -> 下沉到 high(上游漏斗塞入了新的非空槽)
-    //   low..high       -> 保留这些缓冲槽，但下沉每槽超过 refillBatch 的部分
-    // 兼容旧配置: 只写了 keep-filled-slots(单水位)时 low=high=该值。
-    public final boolean bufferEnabled;
-    public final int keepFilledLow;
-    public final int keepFilledHigh;
-    public final long transferIntervalTicks;
-    public final int transferBatchPerChest;
-    // 补货/缓冲粒度：一次从虚拟存储补多少件，同时也是每个物理缓冲槽最多保留的件数。
-    // 默认 1 = 物理层每槽只留1件供原版漏斗抽取，其余立即下沉到GUI可见的虚拟存储；
-    // 调大可提升高速/多漏斗并联的吞吐，但会有更多物品暂存在GUI不可见的物理缓冲中。
-    public final int refillBatch;
+    // 红石 I/O：虚拟仓库是唯一库存，物理箱保持为空。
+    // 默认每 4 tick 搬 1 件，约为原版漏斗 8 tick/件的两倍吞吐。
+    public final boolean ioEnabled;
+    public final long ioIntervalTicks;
+    public final int ioItemsPerTransfer;
+    public final boolean ioHoppers;
+    public final boolean ioHopperMinecarts;
 
     // 落盘
     public final long saveIntervalTicks;
@@ -53,6 +45,7 @@ public final class PluginConfig {
     public final String guiNextPage;
     public final String guiPageIndicator;
     public final boolean guiFiller;
+    public final String guiSort;      // 整理整个逻辑仓库按钮文案
     public final String guiVoidOn;    // 溢出销毁按钮: 已开启态文案
     public final String guiVoidOff;   // 溢出销毁按钮: 已关闭态文案
     public final String guiHoloOn;    // 容量悬浮字按钮: 已开启态文案
@@ -71,16 +64,15 @@ public final class PluginConfig {
         this.defaultPages = Math.max(1, c.getInt("default-pages", 1));
         this.maxPages = Math.max(this.defaultPages, c.getInt("max-pages", 54));
 
-        this.bufferEnabled = c.getBoolean("buffer-enabled", true);
-        // 单水位旧字段作为回退基准; 新双阈值缺省时退化为 low=high=旧值。
-        int legacy = clamp(c.getInt("keep-filled-slots", 0), 0, PHYSICAL_SLOTS);
-        int low = clamp(c.getInt("keep-filled-low", legacy), 0, PHYSICAL_SLOTS);
-        int high = clamp(c.getInt("keep-filled-high", legacy), 0, PHYSICAL_SLOTS);
-        this.keepFilledLow = Math.min(low, high);   // 纠正 low>high 的误配, 保证区间合法
-        this.keepFilledHigh = Math.max(low, high);
-        this.transferIntervalTicks = Math.max(1L, c.getLong("transfer-interval-ticks", 2));
-        this.transferBatchPerChest = Math.max(1, c.getInt("transfer-batch-per-chest", 5));
-        this.refillBatch = clamp(c.getInt("refill-batch", 1), 1, 64);
+        // 旧版 buffer-enabled 作为总开关回退；contains(..., true) 忽略 JAR 默认值，
+        // 避免旧服务器显式关闭 buffer-enabled 时被新版 io.enabled 默认 true 覆盖。
+        this.ioEnabled = c.contains("io.enabled", true)
+                ? c.getBoolean("io.enabled")
+                : c.getBoolean("buffer-enabled", true);
+        this.ioIntervalTicks = Math.max(1L, c.getLong("io.interval-ticks", 4L));
+        this.ioItemsPerTransfer = clamp(c.getInt("io.items-per-transfer", 1), 1, 64);
+        this.ioHoppers = c.getBoolean("io.hoppers", true);
+        this.ioHopperMinecarts = c.getBoolean("io.hopper-minecarts", true);
 
         this.saveIntervalTicks = Math.max(200L, c.getLong("save-interval-ticks", 1200));
 
@@ -96,16 +88,18 @@ public final class PluginConfig {
         this.guiNextPage = c.getString("gui.next-page", "&a下一页 »");
         this.guiPageIndicator = c.getString("gui.page-indicator", "&e第 %page% / %pages% 页");
         this.guiFiller = c.getBoolean("gui.filler", true);
+        this.guiSort = c.getString("gui.sort",
+                "&a整理仓库\n&7合并相同物品，并按类型整理全部页面。\n&e点击整理");
         this.guiVoidOn = c.getString("gui.void-overflow-on",
-                "&c溢出销毁: 开\n&7虚拟仓库满后, 搬不下的溢出物品\n&7将被直接删除(防红石堵塞)。\n&e点击关闭");
+                "&c溢出销毁: 开\n&7虚拟仓库满后, 输入端送入的溢出物品\n&7将被直接删除(防红石堵塞)。\n&e点击关闭");
         this.guiVoidOff = c.getString("gui.void-overflow-off",
-                "&a溢出销毁: 关\n&7虚拟仓库满后, 物理格保留物品\n&7(可能回堵漏斗)。\n&e点击开启");
+                "&a溢出销毁: 关\n&7虚拟仓库满后, 物品保留在输入漏斗\n&7(可能造成红石回堵)。\n&e点击开启");
         this.guiHoloOn = c.getString("gui.hologram-on",
                 "&a悬浮字: 开\n&7箱子上方显示容量占用文字。\n&e点击关闭");
         this.guiHoloOff = c.getString("gui.hologram-off",
                 "&7悬浮字: 关\n&7箱子上方不显示文字。\n&e点击开启");
         this.guiNameHoloOn = c.getString("gui.name-hologram-on",
-                "&a名字悬浮字: 开\n&7显示箱子的铁砧命名。\n&7关闭容量悬浮字时会一并隐藏。\n&e点击关闭");
+                "&a名字悬浮字: 开\n&7显示箱子的铁砧命名。\n&7与容量悬浮字独立管理。\n&e点击关闭");
         this.guiNameHoloOff = c.getString("gui.name-hologram-off",
                 "&7名字悬浮字: 关\n&7用铁砧重命名扩容箱物品后放置，\n&7可在箱子上方显示名字。\n&e点击开启");
 
