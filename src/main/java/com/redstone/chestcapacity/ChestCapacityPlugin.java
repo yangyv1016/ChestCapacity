@@ -50,6 +50,7 @@ public final class ChestCapacityPlugin extends JavaPlugin {
                         gui, holograms, comparators), this);
         getServer().getPluginManager().registerEvents(io, this);
         getServer().getPluginManager().registerEvents(comparators, this);
+        comparators.start();
         io.start();
 
         ChestCommand command = new ChestCommand(config, items);
@@ -69,6 +70,7 @@ public final class ChestCapacityPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (saveTask != null) saveTask.cancel();
+        if (comparators != null) comparators.stop();
         if (io != null) io.stop();
         if (store != null) store.saveSync();
     }

@@ -10,8 +10,12 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** 将扩容箱的虚拟占用率投影为相邻比较器的输入信号。 */
 public final class ComparatorService implements Listener {
@@ -23,11 +27,31 @@ public final class ComparatorService implements Listener {
     private final Plugin plugin;
     private final ChestViewResolver resolver;
     private final ComparatorOutputBridge outputBridge;
+    private final Set<String> activeComparators = new HashSet<>();
+    private BukkitTask projectionTask;
 
     public ComparatorService(Plugin plugin, ChestViewResolver resolver) {
         this.plugin = plugin;
         this.resolver = resolver;
         this.outputBridge = new ComparatorOutputBridge(plugin);
+    }
+
+    /**
+     * 原版会持续按空物理箱把比较器输出重算为 0；因此虚拟库存输出不能只靠事件写一次，
+     * 必须在原版红石 tick 之后持续投影。这里只扫描已确认读取扩容箱的比较器。
+     */
+    public void start() {
+        if (projectionTask != null) return;
+        projectionTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, this::projectActiveComparators, 1L, 1L);
+    }
+
+    public void stop() {
+        if (projectionTask != null) {
+            projectionTask.cancel();
+            projectionTask = null;
+        }
+        activeComparators.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -42,8 +66,7 @@ public final class ComparatorService implements Listener {
 
         int output = outputSignal(comparatorBlock, data, view.comparatorSignal());
         event.setNewCurrent(output);
-        plugin.getServer().getScheduler().runTask(plugin,
-                () -> projectOutput(comparatorBlock));
+        activeComparators.add(VirtualStore.keyOf(comparatorBlock));
     }
 
     /** 比较器后放置时，下一 tick 从虚拟库存建立初始输出。 */
@@ -100,14 +123,27 @@ public final class ComparatorService implements Listener {
         projectOutput(candidate);
     }
 
-    private void projectOutput(Block comparatorBlock) {
+    private void projectActiveComparators() {
+        for (String key : new ArrayList<>(activeComparators)) {
+            Block comparator = VirtualStore.blockOf(key);
+            if (comparator == null) continue;
+            if (!comparator.getWorld().isChunkLoaded(
+                    comparator.getX() >> 4, comparator.getZ() >> 4)) continue;
+            if (!projectOutput(comparator)) activeComparators.remove(key);
+        }
+    }
+
+    private boolean projectOutput(Block comparatorBlock) {
         if (comparatorBlock.getType() != Material.COMPARATOR
-                || !(comparatorBlock.getBlockData() instanceof Comparator data)) return;
+                || !(comparatorBlock.getBlockData() instanceof Comparator data)) return false;
         Block source = inputContainerOf(comparatorBlock, data);
         ChestView view = source == null ? null : resolver.resolve(source);
-        if (view == null) return;
+        if (view == null) return false;
+
+        activeComparators.add(VirtualStore.keyOf(comparatorBlock));
         outputBridge.write(comparatorBlock,
                 outputSignal(comparatorBlock, data, view.comparatorSignal()));
+        return true;
     }
 
     private static int outputSignal(Block comparatorBlock, Comparator data, int input) {
