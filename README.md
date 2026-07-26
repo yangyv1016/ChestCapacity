@@ -139,7 +139,7 @@ Requirements: JDK 21+
 
 ```bash
 ./gradlew build
-# Output: build/libs/ChestCapacity-1.1.2.jar
+# Output: build/libs/ChestCapacity-1.1.3.jar
 ```
 
 ---
@@ -271,5 +271,5 @@ item:
 
 ```bash
 ./gradlew build
-# 输出: build/libs/ChestCapacity-1.1.0.jar
+# 输出: build/libs/ChestCapacity-1.1.3.jar
 ```
