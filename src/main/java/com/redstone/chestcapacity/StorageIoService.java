@@ -5,6 +5,7 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Chest;
 import org.bukkit.block.DoubleChest;
+import org.bukkit.block.Dropper;
 import org.bukkit.block.Hopper;
 import org.bukkit.entity.minecart.HopperMinecart;
 import org.bukkit.event.EventHandler;
@@ -74,8 +75,9 @@ public final class StorageIoService implements Listener {
     }
 
     /**
-     * 物理箱不参与库存事务：从扩容箱抽取一律取消；写入端由主动漏斗适配接管，
-     * 投掷器/自动合成器等原版输出方块则放行到物理箱，并在同 tick 周期迁入虚拟仓库。
+     * 物理箱不参与正常库存事务：从扩容箱抽取一律取消；普通漏斗由主动适配接管。
+     * 开启溢出销毁后，满仓漏斗允许借用一 tick 物理缓冲，投掷器与自动合成器
+     * 则在各自事件内直接完成“入库可容纳部分 + 销毁剩余部分”的事务。
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onInventoryMove(InventoryMoveItemEvent event) {
@@ -87,33 +89,84 @@ public final class StorageIoService implements Listener {
         Block destination = expandedBlockOf(event.getDestination());
         if (destination == null) return;
         InventoryHolder initiator = event.getInitiator().getHolder();
-        if (!config.ioEnabled || initiator instanceof Hopper || initiator instanceof HopperMinecart) {
+        if (!config.ioEnabled) {
             event.setCancelled(true);
+            return;
+        }
+        if (initiator instanceof Hopper || initiator instanceof HopperMinecart) {
+            ChestView view = resolver.resolve(destination);
+            boolean hopperEnabled = !(initiator instanceof Hopper) || config.ioHoppers;
+            boolean overflowing = view != null
+                    && view.voidOverflow()
+                    && view.acceptanceOf(event.getItem()) < event.getItem().getAmount();
+            // 满仓销毁时允许原版把这一件放进始终为空的物理缓冲；下一 tick 的
+            // drainPhysical 会直接销毁。其余情况仍交给限速的主动搬运，避免双重输入。
+            if (!hopperEnabled || !overflowing) event.setCancelled(true);
             return;
         }
 
         if (!canAcceptOutput(destination, event.getItem())) event.setCancelled(true);
     }
 
-    /** 投掷器朝向扩容箱时，满仓应像原版满箱一样保留物品，而不是落到物理缓冲。 */
+    /**
+     * 投掷器朝向扩容箱时直接完成输入事务。
+     *
+     * 原版输出依赖物理箱接收结果；在虚拟仓库满时，即使开启了溢出销毁，
+     * 原版仍可能先做容量背压而根本不扣除投掷器物品。开启销毁后由插件取消
+     * 原版投掷，直接从投掷器扣除本次物品，并把可容纳部分写入虚拟仓库、其余销毁。
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDropperDispense(BlockDispenseEvent event) {
         Block source = event.getBlock();
         if (source.getType() != Material.DROPPER
                 || !(source.getBlockData() instanceof org.bukkit.block.data.Directional data)) return;
         Block destination = source.getRelative(data.getFacing());
-        if (resolver.resolve(destination) == null) return;
-        if (!config.ioEnabled || !canAcceptOutput(destination, event.getItem())) event.setCancelled(true);
+        ChestView view = resolver.resolve(destination);
+        if (view == null) return;
+        if (!config.ioEnabled) {
+            event.setCancelled(true);
+            return;
+        }
+        if (!view.voidOverflow()) {
+            if (view.acceptanceOf(event.getItem()) < event.getItem().getAmount()) event.setCancelled(true);
+            return;
+        }
+        if (!(source.getState(false) instanceof Dropper dropper)) {
+            event.setCancelled(true);
+            return;
+        }
+
+        event.setCancelled(true);
+        absorbOpenEdits(view);
+        if (!removeOneSimilar(dropper.getInventory(), event.getItem())) return;
+        view.push(event.getItem());
+        refreshAfterDirectInput(view);
     }
 
-    /** 自动合成器向扩容箱输出时，在合成发生前执行容量背压。 */
+    /**
+     * 自动合成器开启溢出销毁后，直接把本次产物写入虚拟仓库并把事件结果置空。
+     * 合成过程仍由原版执行（会消耗原料并处理容器物品），只是产物不再经过物理箱。
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCrafterCraft(CrafterCraftEvent event) {
         Block source = event.getBlock();
         if (!(source.getBlockData() instanceof org.bukkit.block.data.Directional data)) return;
         Block destination = source.getRelative(data.getFacing());
-        if (resolver.resolve(destination) == null) return;
-        if (!config.ioEnabled || !canAcceptOutput(destination, event.getResult())) event.setCancelled(true);
+        ChestView view = resolver.resolve(destination);
+        if (view == null) return;
+        if (!config.ioEnabled) {
+            event.setCancelled(true);
+            return;
+        }
+        if (!view.voidOverflow()) {
+            if (view.acceptanceOf(event.getResult()) < event.getResult().getAmount()) event.setCancelled(true);
+            return;
+        }
+
+        absorbOpenEdits(view);
+        view.push(event.getResult());
+        event.setResult(new ItemStack(Material.AIR));
+        refreshAfterDirectInput(view);
     }
 
     private void tick() {
@@ -272,6 +325,37 @@ public final class StorageIoService implements Listener {
             return true;
         }
         return false;
+    }
+
+    /** 从输入容器精确扣除本次物品；找不到匹配堆叠时不执行直接输入，避免复制物品。 */
+    private boolean removeOneSimilar(Inventory source, ItemStack moving) {
+        int amount = moving.getAmount();
+        if (amount <= 0) return false;
+        for (int slot = 0; slot < source.getSize(); slot++) {
+            ItemStack current = source.getItem(slot);
+            if (current == null || !current.isSimilar(moving) || current.getAmount() < amount) continue;
+            int left = current.getAmount() - amount;
+            if (left <= 0) source.setItem(slot, null);
+            else {
+                ItemStack retained = current.clone();
+                retained.setAmount(left);
+                source.setItem(slot, retained);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /** 直接输入前先吸收打开中的 GUI，避免玩家刚放入的物品被旧视图覆盖。 */
+    private void absorbOpenEdits(ChestView view) {
+        if (hasOpenView(view)) gui.absorbEdits(view.blockKeys().get(0));
+    }
+
+    /** 事件内直接输入完成后，同步所有派生视图。 */
+    private void refreshAfterDirectInput(ChestView view) {
+        refreshViews(view);
+        holograms.syncFor(view);
+        comparators.refresh(view);
     }
 
     private boolean hasOpenView(ChestView view) {
