@@ -1,5 +1,6 @@
 package com.redstone.chestcapacity;
 
+import org.bukkit.block.Block;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
@@ -22,15 +23,18 @@ public final class ChestView {
     // 与 blockKeys[i] 一一对应的段数据。segments[i] 覆盖全局槽 [offset[i], offset[i]+cap[i])。
     private final List<ChestData> segments;
     private final List<String> blockKeys;   // 各段对应的箱子坐标键（LEFT 在前），供写回/落盘/悬浮字定位
+    private final List<Block> blocks;
     private final int[] offset;              // 各段在全局槽空间里的起始下标
     private final int capacity;             // 全局总槽数 = Σ 段容量
 
-    public ChestView(List<ChestData> segments, List<String> blockKeys) {
-        if (segments.isEmpty() || segments.size() != blockKeys.size()) {
-            throw new IllegalArgumentException("segments 与 blockKeys 必须非空且等长");
+    public ChestView(List<ChestData> segments, List<String> blockKeys, List<Block> blocks) {
+        if (segments.isEmpty() || segments.size() != blockKeys.size()
+                || segments.size() != blocks.size()) {
+            throw new IllegalArgumentException("segments, blockKeys and blocks must be non-empty and equally sized");
         }
-        this.segments = segments;
-        this.blockKeys = blockKeys;
+        this.segments = List.copyOf(segments);
+        this.blockKeys = List.copyOf(blockKeys);
+        this.blocks = List.copyOf(blocks);
         this.offset = new int[segments.size()];
         int acc = 0;
         for (int i = 0; i < segments.size(); i++) {
@@ -41,8 +45,8 @@ public final class ChestView {
     }
 
     /** 单段快捷构造（单箱）。 */
-    public static ChestView single(ChestData data, String key) {
-        return new ChestView(List.of(data), List.of(key));
+    public static ChestView single(ChestData data, String key, Block block) {
+        return new ChestView(List.of(data), List.of(key), List.of(block));
     }
 
     public int capacity() { return capacity; }
@@ -52,6 +56,7 @@ public final class ChestView {
 
     public List<ChestData> segments() { return segments; }
     public List<String> blockKeys() { return blockKeys; }
+    public List<Block> blocks() { return blocks; }
 
     /**
      * 拆除某一段后，把「合并连续内容」按 trim_tail 语义重分布到剩余段。
@@ -115,6 +120,18 @@ public final class ChestView {
         return segments.get(seg).getSlot(globalSlot - offset[seg]);
     }
 
+    /** Return the next occupied global slot at or after fromSlot, or -1. */
+    public int nextOccupiedSlot(int fromSlot) {
+        if (fromSlot < 0) fromSlot = 0;
+        for (int seg = 0; seg < segments.size(); seg++) {
+            int localStart = Math.max(0, fromSlot - offset[seg]);
+            if (localStart >= segments.get(seg).capacity()) continue;
+            int local = segments.get(seg).nextOccupiedSlot(localStart);
+            if (local >= 0) return offset[seg] + local;
+        }
+        return -1;
+    }
+
     public void setSlot(int globalSlot, ItemStack stack) {
         int seg = segmentIndexOf(globalSlot);
         if (seg < 0) return;
@@ -136,10 +153,14 @@ public final class ChestView {
         if (stack == null || stack.getType().isAir()) return 0;
         long space = 0;
         int max = Math.max(1, stack.getMaxStackSize());
+        // Empty slots are known from the cached used-stack count; only occupied
+        // slots need inspection for partially filled similar stacks.
         for (ChestData segment : segments) {
-            for (ItemStack stored : segment.slots()) {
-                if (stored == null || stored.getType().isAir()) space += max;
-                else if (stored.isSimilar(stack)) space += Math.max(0, max - stored.getAmount());
+            space += (long) (segment.capacity() - segment.usedStacks()) * max;
+            for (int slot = segment.nextOccupiedSlot(0); slot >= 0;
+                 slot = segment.nextOccupiedSlot(slot + 1)) {
+                ItemStack stored = segment.getSlot(slot);
+                if (stored.isSimilar(stack)) space += Math.max(0, max - stored.getAmount());
                 if (space >= Integer.MAX_VALUE) return Integer.MAX_VALUE;
             }
         }
@@ -168,19 +189,15 @@ public final class ChestView {
      * 箱级开关关闭时只测量逻辑第一页，避免通过信号暴露扩容后的真实容量。
      */
     public int comparatorSignal() {
-        int measuredSlots = comparatorRealCapacity()
-                ? capacity
-                : Math.min(capacity, PluginConfig.SLOTS_PER_PAGE);
+        if (!comparatorRealCapacity()) return segments.get(0).comparatorSignal(false);
+        int nonEmpty = 0;
         double fullness = 0.0;
-        boolean nonEmpty = false;
-        for (int slot = 0; slot < measuredSlots; slot++) {
-            ItemStack stack = getSlot(slot);
-            if (stack == null || stack.getType().isAir()) continue;
-            nonEmpty = true;
-            fullness += (double) stack.getAmount() / Math.max(1, stack.getMaxStackSize());
+        for (ChestData segment : segments) {
+            nonEmpty += segment.usedStacks();
+            fullness += segment.fullness();
         }
-        if (!nonEmpty || measuredSlots <= 0) return 0;
-        return Math.min(15, 1 + (int) Math.floor(14.0 * fullness / measuredSlots));
+        if (nonEmpty == 0 || capacity <= 0) return 0;
+        return Math.min(15, 1 + (int) Math.floor(14.0 * fullness / capacity));
     }
 
     /** 深拷贝完整逻辑仓库的非空内容，供整理等批处理脱离底层数组运算。 */

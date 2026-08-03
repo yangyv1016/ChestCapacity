@@ -9,7 +9,11 @@ import org.bukkit.plugin.Plugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
@@ -30,6 +34,23 @@ public final class VirtualStore {
     private final Plugin plugin;
     private final File dataFile;
     private final Map<String, ChestData> byKey = new HashMap<>();
+    private List<String> scanKeys = List.of();
+    private boolean scanKeysDirty = true;
+    private static final int MAX_PARSED_KEYS = 16_384;
+    private static final Map<String, BlockAddress> PARSED_KEYS = Collections.synchronizedMap(
+            new LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, BlockAddress> eldest) {
+                    return size() > MAX_PARSED_KEYS;
+                }
+            });
+
+    private record BlockAddress(String world, int x, int y, int z) {
+        Block block() {
+            org.bukkit.World loaded = Bukkit.getWorld(world);
+            return loaded == null ? null : loaded.getBlockAt(x, y, z);
+        }
+    }
 
     public VirtualStore(Plugin plugin) {
         this.plugin = plugin;
@@ -56,6 +77,15 @@ public final class VirtualStore {
      * 从右侧拆出 z/y/x，剩余为世界名（容忍世界名本身含冒号）。
      */
     public static Block blockOf(String key) {
+        BlockAddress cached = PARSED_KEYS.get(key);
+        if (cached != null) return cached.block();
+        BlockAddress parsed = parseKey(key);
+        if (parsed == null) return null;
+        PARSED_KEYS.put(key, parsed);
+        return parsed.block();
+    }
+
+    private static BlockAddress parseKey(String key) {
         int p3 = key.lastIndexOf(':');
         if (p3 < 0) return null;
         int p2 = key.lastIndexOf(':', p3 - 1);
@@ -63,12 +93,10 @@ public final class VirtualStore {
         int p1 = key.lastIndexOf(':', p2 - 1);
         if (p1 < 0) return null;
         try {
-            int x = Integer.parseInt(key.substring(p1 + 1, p2));
-            int y = Integer.parseInt(key.substring(p2 + 1, p3));
-            int z = Integer.parseInt(key.substring(p3 + 1));
-            org.bukkit.World world = Bukkit.getWorld(key.substring(0, p1));
-            if (world == null) return null;
-            return world.getBlockAt(x, y, z);
+            return new BlockAddress(key.substring(0, p1),
+                    Integer.parseInt(key.substring(p1 + 1, p2)),
+                    Integer.parseInt(key.substring(p2 + 1, p3)),
+                    Integer.parseInt(key.substring(p3 + 1)));
         } catch (NumberFormatException e) {
             return null;
         }
@@ -90,6 +118,7 @@ public final class VirtualStore {
         if (existing != null) return existing;
         ChestData data = new ChestData(pages);
         byKey.put(key, data);
+        scanKeysDirty = true;
         return data;
     }
 
@@ -98,9 +127,23 @@ public final class VirtualStore {
         return byKey.entrySet();
     }
 
+    /** Stable scan list rebuilt only when chests are added or removed. */
+    public List<String> scanKeys() {
+        if (scanKeysDirty) {
+            scanKeys = List.copyOf(new ArrayList<>(byKey.keySet()));
+            scanKeysDirty = false;
+        }
+        return scanKeys;
+    }
+
     /** 破坏箱子时移除并返回其数据（供上层把内容掉落）。 */
     public ChestData remove(String key) {
-        return byKey.remove(key);
+        ChestData removed = byKey.remove(key);
+        if (removed != null) {
+            scanKeysDirty = true;
+            PARSED_KEYS.remove(key);
+        }
+        return removed;
     }
 
     public int size() {
@@ -112,6 +155,7 @@ public final class VirtualStore {
     /** 启动时同步加载（数据量通常不大，启动阶段可接受）。 */
     public void load() {
         byKey.clear();
+        scanKeysDirty = true;
         if (!dataFile.exists()) return;
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(dataFile);
         ConfigurationSection root = yaml.getConfigurationSection("chests");

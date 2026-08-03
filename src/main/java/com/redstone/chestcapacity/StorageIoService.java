@@ -1,5 +1,6 @@
 package com.redstone.chestcapacity;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -21,7 +22,9 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -45,7 +48,6 @@ public final class StorageIoService implements Listener {
     private final ComparatorService comparators;
 
     private BukkitTask task;
-    private long ticks;
     private final Set<String> initializedComparatorViews = new HashSet<>();
 
     public StorageIoService(Plugin plugin, PluginConfig config, VirtualStore store,
@@ -61,7 +63,8 @@ public final class StorageIoService implements Listener {
     }
 
     public void start() {
-        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
+        long period = Math.max(1L, config.ioIntervalTicks);
+        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, period);
         if (!config.ioEnabled) {
             plugin.getLogger().info("虚拟仓库红石端点已关闭；物理箱仍会保持为空。");
         }
@@ -99,8 +102,8 @@ public final class StorageIoService implements Listener {
             boolean overflowing = view != null
                     && view.voidOverflow()
                     && view.acceptanceOf(event.getItem()) < event.getItem().getAmount();
-            // 满仓销毁时允许原版把这一件放进始终为空的物理缓冲；下一 tick 的
-            // drainPhysical 会直接销毁。其余情况仍交给限速的主动搬运，避免双重输入。
+            // Overflow may use the otherwise-empty physical buffer until the next I/O cycle;
+            // drainPhysical then consumes it. Other input stays on the rate-limited active path.
             if (!hopperEnabled || !overflowing) event.setCancelled(true);
             return;
         }
@@ -170,50 +173,54 @@ public final class StorageIoService implements Listener {
     }
 
     private void tick() {
-        ticks++;
-        boolean transferTick = ticks % config.ioIntervalTicks == 0;
         Set<String> processedViews = new HashSet<>();
         Set<String> processedInputHoppers = new HashSet<>();
         Set<String> processedOutputHoppers = new HashSet<>();
         Set<UUID> processedMinecarts = new HashSet<>();
+        Map<String, List<HopperMinecart>> minecartsBySource = config.ioEnabled
+                && config.ioHopperMinecarts ? indexHopperMinecarts() : Map.of();
 
-        for (Map.Entry<String, ChestData> entry : new ArrayList<>(store.entries())) {
-            Block block = VirtualStore.blockOf(entry.getKey());
-            if (!isLoadedExpandedChest(block)) continue;
+        for (String chestKey : store.scanKeys()) {
+            Block block = VirtualStore.blockOf(chestKey);
+            if (block == null || !block.getWorld().isChunkLoaded(
+                    block.getX() >> 4, block.getZ() >> 4)) continue;
             ChestView view = resolver.resolve(block);
             if (view == null || !processedViews.add(view.blockKeys().get(0))) continue;
             boolean initializeComparator = initializedComparatorViews.add(view.blockKeys().get(0));
 
-            int beforeSignal = view.comparatorSignal();
-            int beforeUsed = view.usedStacks();
             boolean viewed = hasOpenView(view);
+            int beforeSignal = viewed ? view.comparatorSignal() : 0;
+            int beforeUsed = viewed ? view.usedStacks() : 0;
             if (viewed) gui.absorbEdits(view.blockKeys().get(0));
 
             boolean changed = drainPhysical(view);
-            if (transferTick && config.ioEnabled) {
+            if (config.ioEnabled) {
                 if (config.ioHoppers) {
                     changed |= pullFromInputHoppers(view, processedInputHoppers);
                     changed |= pushToOutputHoppers(view, processedOutputHoppers);
                 }
                 if (config.ioHopperMinecarts) {
-                    changed |= pushToHopperMinecarts(view, processedMinecarts);
+                    changed |= pushToHopperMinecarts(view, minecartsBySource, processedMinecarts);
                 }
             }
 
+            boolean guiContentChanged = viewed && (beforeUsed != view.usedStacks()
+                    || beforeSignal != view.comparatorSignal());
             if (viewed) refreshViews(view);
-            if (changed || beforeUsed != view.usedStacks()) holograms.syncFor(view);
-            if (initializeComparator || changed || beforeSignal != view.comparatorSignal()) {
-                comparators.refresh(view);
-            }
+            if ((changed || guiContentChanged) && view.hologramShown()) holograms.syncFor(view);
+            // Active comparators are projected every tick by ComparatorService. A full
+            // neighbour scan is only needed once per loaded view to discover old comparators.
+            if (initializeComparator) comparators.refresh(view);
         }
     }
 
     /** 迁移旧版本缓冲或其他来源塞入的物品；物理箱在本 tick 结束时恢复为空。 */
     private boolean drainPhysical(ChestView view) {
         boolean changed = false;
-        for (String key : view.blockKeys()) {
-            Block block = VirtualStore.blockOf(key);
-            if (block == null || !(block.getState(false) instanceof Chest chest)) continue;
+        for (int part = 0; part < view.blocks().size(); part++) {
+            Block block = view.blocks().get(part);
+            String key = view.blockKeys().get(part);
+            if (!(block.getState(false) instanceof Chest chest)) continue;
             Inventory physical = chest.getBlockInventory();
             for (int slot = 0; slot < physical.getSize(); slot++) {
                 ItemStack stack = physical.getItem(slot);
@@ -234,9 +241,7 @@ public final class StorageIoService implements Listener {
 
     private boolean pullFromInputHoppers(ChestView view, Set<String> processed) {
         boolean changed = false;
-        for (String key : view.blockKeys()) {
-            Block chest = VirtualStore.blockOf(key);
-            if (chest == null) continue;
+        for (Block chest : view.blocks()) {
             for (BlockFace face : INPUT_NEIGHBORS) {
                 Block candidate = chest.getRelative(face);
                 if (!(candidate.getState(false) instanceof Hopper hopper)) continue;
@@ -252,9 +257,7 @@ public final class StorageIoService implements Listener {
 
     private boolean pushToOutputHoppers(ChestView view, Set<String> processed) {
         boolean changed = false;
-        for (String key : view.blockKeys()) {
-            Block chest = VirtualStore.blockOf(key);
-            if (chest == null) continue;
+        for (Block chest : view.blocks()) {
             Block below = chest.getRelative(BlockFace.DOWN);
             if (!(below.getState(false) instanceof Hopper hopper)) continue;
             if (!(below.getBlockData() instanceof org.bukkit.block.data.type.Hopper data)
@@ -265,16 +268,32 @@ public final class StorageIoService implements Listener {
         return changed;
     }
 
-    private boolean pushToHopperMinecarts(ChestView view, Set<UUID> processed) {
-        boolean changed = false;
-        for (String key : view.blockKeys()) {
-            Block chest = VirtualStore.blockOf(key);
-            if (chest == null) continue;
-            for (HopperMinecart minecart : chest.getWorld().getNearbyEntitiesByType(
-                    HopperMinecart.class, chest.getLocation().add(0.5, -0.5, 0.5), 1.25)) {
+    private Map<String, List<HopperMinecart>> indexHopperMinecarts() {
+        Map<String, List<HopperMinecart>> bySource = new HashMap<>();
+        for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (HopperMinecart minecart : world.getEntitiesByClass(HopperMinecart.class)) {
                 if (!minecart.isEnabled()) continue;
+                Block source = minecart.getLocation().getBlock().getRelative(BlockFace.UP);
+                bySource.computeIfAbsent(VirtualStore.keyOf(source), ignored -> new ArrayList<>())
+                        .add(minecart);
+            }
+        }
+        return bySource;
+    }
+
+    private boolean pushToHopperMinecarts(ChestView view,
+                                           Map<String, List<HopperMinecart>> bySource,
+                                           Set<UUID> processed) {
+        boolean changed = false;
+        for (int part = 0; part < view.blocks().size(); part++) {
+            Block chest = view.blocks().get(part);
+            List<HopperMinecart> minecarts = bySource.get(view.blockKeys().get(part));
+            if (minecarts == null) continue;
+            for (HopperMinecart minecart : minecarts) {
+                if (!minecart.isValid() || !processed.add(minecart.getUniqueId())) continue;
+                // Recheck after indexing because a minecart can move during another plugin event.
                 Block sourceAbove = minecart.getLocation().getBlock().getRelative(BlockFace.UP);
-                if (!sameBlock(sourceAbove, chest) || !processed.add(minecart.getUniqueId())) continue;
+                if (!sameBlock(sourceAbove, chest)) continue;
                 changed |= pushOne(view, minecart.getInventory());
             }
         }
@@ -307,7 +326,8 @@ public final class StorageIoService implements Listener {
     }
 
     private boolean pushOne(ChestView view, Inventory target) {
-        for (int slot = 0; slot < view.capacity(); slot++) {
+        for (int slot = view.nextOccupiedSlot(0); slot >= 0;
+             slot = view.nextOccupiedSlot(slot + 1)) {
             ItemStack stored = view.getSlot(slot);
             if (stored == null || stored.getType().isAir()) continue;
             ItemStack candidate = stored.clone();
@@ -388,11 +408,6 @@ public final class StorageIoService implements Listener {
         return null;
     }
 
-    private boolean isLoadedExpandedChest(Block block) {
-        return block != null
-                && block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
-                && resolver.isExpandedChest(block);
-    }
 
     private static int amountOf(ItemStack stack) {
         return stack == null ? 0 : stack.getAmount();

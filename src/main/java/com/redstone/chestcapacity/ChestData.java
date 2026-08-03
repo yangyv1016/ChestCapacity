@@ -4,6 +4,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -21,6 +22,13 @@ public final class ChestData {
 
     private int pages;
     private ItemStack[] slots;
+    /** Tracks non-empty slots so hot paths skip thousands of empty entries. */
+    private BitSet occupied;
+    /** Incrementally maintained metrics for holograms and comparator output. */
+    private int usedStacks;
+    private double fullness;
+    private int firstPageUsedStacks;
+    private double firstPageFullness;
     // 溢出销毁开关：开启后，虚拟存储已满、物理格又搬不下去的溢出物品由搬运层直接删除。
     // 存在意义：红石服里下游堵塞时避免物理格回堵导致漏斗卡死；权威在虚拟存储层，随 chests.yml 落盘。
     private boolean voidOverflow;
@@ -37,6 +45,7 @@ public final class ChestData {
     public ChestData(int pages) {
         this.pages = Math.max(1, pages);
         this.slots = new ItemStack[this.pages * PluginConfig.SLOTS_PER_PAGE];
+        this.occupied = new BitSet(this.slots.length);
     }
 
     public int pages() { return pages; }
@@ -71,18 +80,52 @@ public final class ChestData {
     }
 
     public void setSlot(int index, ItemStack stack) {
-        if (index >= 0 && index < slots.length) {
-            slots[index] = (stack == null || stack.getType().isAir()) ? null : stack;
+        if (index < 0 || index >= slots.length) return;
+        ItemStack normalized = (stack == null || stack.getType().isAir()) ? null : stack;
+        ItemStack previous = slots[index];
+        if (previous != null) removeMetrics(index, previous);
+        slots[index] = normalized;
+        if (normalized != null) addMetrics(index, normalized);
+    }
+
+    /** Internal array for read-only bulk operations; callers must not mutate it. */
+    public ItemStack[] slots() { return slots; }
+
+    /** Return the next occupied slot at or after fromIndex, or -1. */
+    public int nextOccupiedSlot(int fromIndex) {
+        int index = occupied.nextSetBit(Math.max(0, fromIndex));
+        return index >= slots.length ? -1 : index;
+    }
+
+    private void addMetrics(int index, ItemStack stack) {
+        occupied.set(index);
+        usedStacks++;
+        double contribution = fullnessOf(stack);
+        fullness += contribution;
+        if (index < PluginConfig.SLOTS_PER_PAGE) {
+            firstPageUsedStacks++;
+            firstPageFullness += contribution;
         }
     }
 
-    /** 直接引用内部数组，供 GUI/搬运批量读写。调用方不得改变长度。 */
-    public ItemStack[] slots() { return slots; }
+    private void removeMetrics(int index, ItemStack stack) {
+        occupied.clear(index);
+        usedStacks--;
+        double contribution = fullnessOf(stack);
+        fullness -= contribution;
+        if (index < PluginConfig.SLOTS_PER_PAGE) {
+            firstPageUsedStacks--;
+            firstPageFullness -= contribution;
+        }
+    }
+
+    private static double fullnessOf(ItemStack stack) {
+        return (double) stack.getAmount() / Math.max(1, stack.getMaxStackSize());
+    }
 
     /** 是否已无任何内容（破坏时判断能否安全移除）。 */
     public boolean isEmpty() {
-        for (ItemStack s : slots) if (s != null) return false;
-        return true;
+        return usedStacks == 0;
     }
 
     /**
@@ -93,24 +136,28 @@ public final class ChestData {
         if (stack == null || stack.getType().isAir()) return null;
         int amount = stack.getAmount();
         int max = stack.getMaxStackSize();
-        // 先合并到同类未满堆叠
-        for (int i = 0; i < slots.length && amount > 0; i++) {
-            ItemStack s = slots[i];
-            if (s == null || !s.isSimilar(stack)) continue;
-            int space = max - s.getAmount();
+        // Iterate only occupied slots when merging into similar stacks.
+        for (int i = occupied.nextSetBit(0); i >= 0 && amount > 0;
+             i = occupied.nextSetBit(i + 1)) {
+            ItemStack stored = slots[i];
+            if (!stored.isSimilar(stack)) continue;
+            int space = max - stored.getAmount();
             if (space <= 0) continue;
             int move = Math.min(space, amount);
-            s.setAmount(s.getAmount() + move);
+            ItemStack merged = stored.clone();
+            merged.setAmount(stored.getAmount() + move);
+            setSlot(i, merged);
             amount -= move;
         }
-        // 再找空位
-        for (int i = 0; i < slots.length && amount > 0; i++) {
-            if (slots[i] != null) continue;
+        // BitSet locates free slots without another linear scan.
+        int empty = occupied.nextClearBit(0);
+        while (empty < slots.length && amount > 0) {
             int move = Math.min(max, amount);
             ItemStack put = stack.clone();
             put.setAmount(move);
-            slots[i] = put;
+            setSlot(empty, put);
             amount -= move;
+            empty = occupied.nextClearBit(empty + 1);
         }
         if (amount <= 0) return null;
         ItemStack rest = stack.clone();
@@ -135,12 +182,18 @@ public final class ChestData {
         }
         this.slots = next;
         this.pages = newPages;
+        rebuildMetrics();
         return overflow;
     }
 
     /** 清空全部槽位（拆除双联重分布时先清空剩余半，再从合并流回填）。 */
     public void clear() {
         java.util.Arrays.fill(slots, null);
+        occupied.clear();
+        usedStacks = 0;
+        fullness = 0.0;
+        firstPageUsedStacks = 0;
+        firstPageFullness = 0.0;
     }
 
     /** 按槽序取出全部非空内容为列表（供拆除掉落 / 重分布收集连续流）。 */
@@ -151,10 +204,30 @@ public final class ChestData {
     }
 
     /** 当前存量（堆叠数，非物品件数），用于统计/悬浮文字显示。 */
-    public int usedStacks() {
-        int n = 0;
-        for (ItemStack s : slots) if (s != null) n++;
-        return n;
+    public int usedStacks() { return usedStacks; }
+
+    public int comparatorSignal(boolean realCapacity) {
+        int measuredSlots = realCapacity ? slots.length
+                : Math.min(slots.length, PluginConfig.SLOTS_PER_PAGE);
+        int nonEmpty = realCapacity ? usedStacks : firstPageUsedStacks;
+        double measuredFullness = realCapacity ? fullness : firstPageFullness;
+        if (nonEmpty == 0 || measuredSlots <= 0) return 0;
+        return Math.min(15, 1 + (int) Math.floor(14.0 * measuredFullness / measuredSlots));
+    }
+
+    double fullness() { return fullness; }
+
+    private void rebuildMetrics() {
+        occupied = new BitSet(slots.length);
+        usedStacks = 0;
+        fullness = 0.0;
+        firstPageUsedStacks = 0;
+        firstPageFullness = 0.0;
+        for (int i = 0; i < slots.length; i++) {
+            ItemStack stack = slots[i];
+            if (stack != null && !stack.getType().isAir()) addMetrics(i, stack);
+            else slots[i] = null;
+        }
     }
 
     /** 深拷贝一份内容快照，供落盘时脱离主线程后续修改（避免并发改动同一 ItemStack）。 */
@@ -189,7 +262,7 @@ public final class ChestData {
             int n = Math.min(list.size(), data.slots.length);
             for (int i = 0; i < n; i++) {
                 Object o = list.get(i);
-                if (o instanceof ItemStack stack) data.slots[i] = stack;
+                if (o instanceof ItemStack stack) data.setSlot(i, stack);
             }
         }
         return data;

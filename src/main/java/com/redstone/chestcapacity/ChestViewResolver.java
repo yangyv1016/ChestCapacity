@@ -29,6 +29,7 @@ public final class ChestViewResolver {
 
         List<ChestData> segments = new ArrayList<>();
         List<String> keys = new ArrayList<>();
+        List<Block> blocks = new ArrayList<>();
         for (Block part : pairing.blocks()) {
             BlockState state = part.getState(false);
             if (!(state instanceof Chest chest) || !marker.isMarked(chest)) continue;
@@ -37,8 +38,9 @@ public final class ChestViewResolver {
             String key = VirtualStore.keyOf(part);
             segments.add(store.create(key, pages));
             keys.add(key);
+            blocks.add(part);
         }
-        return segments.isEmpty() ? null : new ChestView(segments, keys);
+        return segments.isEmpty() ? null : new ChestView(segments, keys, blocks);
     }
 
     public boolean isExpandedChest(Block block) {

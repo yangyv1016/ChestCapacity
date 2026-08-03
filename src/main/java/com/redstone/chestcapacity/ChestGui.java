@@ -86,7 +86,8 @@ public final class ChestGui {
     private void renderPage(Inventory inv, ChestView view, int page) {
         int base = page * PAGE_SLOTS;
         for (int i = 0; i < PAGE_SLOTS; i++) {
-            inv.setItem(i, view.getSlot(base + i));
+            ItemStack stored = view.getSlot(base + i);
+            inv.setItem(i, stored == null ? null : stored.clone());
         }
     }
 

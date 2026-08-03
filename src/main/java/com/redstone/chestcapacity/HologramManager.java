@@ -91,10 +91,7 @@ public final class HologramManager {
 
     /** 转发：GUI 只握有 view 时用它刷新（取任一段方块解析配对）。 */
     public void syncFor(ChestView view) {
-        for (String key : view.blockKeys()) {
-            Block block = VirtualStore.blockOf(key);
-            if (block != null) { syncBlock(block); return; }
-        }
+        if (!view.blocks().isEmpty()) syncBlock(view.blocks().get(0));
     }
 
     /** 清除某方块所在配对的全部悬浮字（拆除/爆炸时调用，含历史残留）。 */

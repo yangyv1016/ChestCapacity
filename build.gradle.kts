@@ -5,7 +5,7 @@ plugins {
 group = "com.redstone"
 // 版本优先取环境变量 PLUGIN_VERSION（CI 在 tag 时注入 tag 名，去掉前缀 v），
 // 本地无该变量时回退到默认值。这样 jar 名 (ChestCapacity-<version>.jar) 与发布 tag 保持一致。
-version = (System.getenv("PLUGIN_VERSION")?.takeIf { it.isNotBlank() } ?: "1.1.3")
+version = (System.getenv("PLUGIN_VERSION")?.takeIf { it.isNotBlank() } ?: "1.1.4")
     .removePrefix("v")
 
 repositories {
@@ -16,6 +16,10 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks {
@@ -23,6 +27,9 @@ tasks {
         options.encoding = "UTF-8"
         // 用本机 JDK 编译，但产出兼容 Java 21 的字节码（Paper 1.21 运行时为 21）。
         options.release.set(21)
+    }
+    test {
+        useJUnitPlatform()
     }
     processResources {
         val props = mapOf("version" to project.version)

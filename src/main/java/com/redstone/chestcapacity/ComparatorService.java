@@ -80,16 +80,14 @@ public final class ComparatorService implements Listener {
 
     /** 在虚拟内容变化后立即刷新，并在下一 tick 再确认一次红石状态。 */
     public void refresh(ChestView view) {
-        List<String> keys = List.copyOf(view.blockKeys());
-        refreshNow(keys);
-        plugin.getServer().getScheduler().runTask(plugin, () -> refreshNow(keys));
+        List<Block> blocks = List.copyOf(view.blocks());
+        refreshNow(blocks);
+        plugin.getServer().getScheduler().runTask(plugin, () -> refreshNow(blocks));
     }
 
-    private void refreshNow(List<String> keys) {
-        for (String key : keys) {
-            Block chest = VirtualStore.blockOf(key);
-            if (chest == null || !chest.getWorld().isChunkLoaded(
-                    chest.getX() >> 4, chest.getZ() >> 4)) continue;
+    private void refreshNow(List<Block> blocks) {
+        for (Block chest : blocks) {
+            if (!chest.getWorld().isChunkLoaded(chest.getX() >> 4, chest.getZ() >> 4)) continue;
             chest.getState(false).update(true, true);
             for (BlockFace face : HORIZONTAL) {
                 refreshComparatorIfReading(chest.getRelative(face), chest);
