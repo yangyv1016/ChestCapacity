@@ -23,8 +23,7 @@ final class ComparatorOutputBridge {
     private Method blockStateGetBlock;
     private Method comparatorGetOutputSignal;
     private Method comparatorSetOutputSignal;
-    private Method levelUpdateNeighborsAt;
-    private Method levelUpdateNeighbourForOutputSignal;
+    private Method comparatorUpdateNeighborsInFront;
 
     ComparatorOutputBridge(Plugin plugin) {
         this.plugin = plugin;
@@ -56,8 +55,12 @@ final class ComparatorOutputBridge {
 
             Object blockState = levelGetBlockState.invoke(level, pos);
             Object nmsBlock = blockStateGetBlock.invoke(blockState);
-            levelUpdateNeighborsAt.invoke(level, pos, nmsBlock);
-            levelUpdateNeighbourForOutputSignal.invoke(level, pos, nmsBlock);
+            resolveComparatorBlockMethods(nmsBlock.getClass());
+
+            // 比较器是有方向的信号源。普通 updateNeighborsAt(pos, ...) 在 Paper 1.21.11
+            // 不会让输出端红石线按方块实体里的模拟强度重算；调用原版比较器自己的
+            // 输出方向更新路径，等价于原版 refreshOutputState 最后的传播步骤。
+            comparatorUpdateNeighborsInFront.invoke(nmsBlock, level, pos, blockState);
             return true;
         } catch (ReflectiveOperationException | RuntimeException ex) {
             logFailure(ex);
@@ -75,9 +78,6 @@ final class ComparatorOutputBridge {
             Class<?> levelClass = level.getClass();
             levelGetBlockEntity = method(levelClass, "getBlockEntity", 1);
             levelGetBlockState = method(levelClass, "getBlockState", 1);
-            levelUpdateNeighborsAt = method(levelClass, "updateNeighborsAt", 2);
-            levelUpdateNeighbourForOutputSignal = method(
-                    levelClass, "updateNeighbourForOutputSignal", 2);
         }
         return craftWorldGetHandle.invoke(block.getWorld());
     }
@@ -89,6 +89,13 @@ final class ComparatorOutputBridge {
 
         Class<?> blockStateClass = levelGetBlockState.getReturnType();
         blockStateGetBlock = method(blockStateClass, "getBlock", 0);
+    }
+
+    private void resolveComparatorBlockMethods(Class<?> comparatorBlockClass)
+            throws ReflectiveOperationException {
+        if (comparatorUpdateNeighborsInFront != null) return;
+        comparatorUpdateNeighborsInFront = method(
+                comparatorBlockClass, "updateNeighborsInFront", 3);
     }
 
     private static Method method(Class<?> type, String name, int parameterCount)

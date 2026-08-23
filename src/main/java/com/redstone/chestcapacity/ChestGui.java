@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -26,6 +27,8 @@ import java.util.Set;
  *
  * 实时镜像模型：
  *   view 背后的 ChestData 是唯一权威，GUI 界面只是它“当前页”的实时镜像。
+ *   同一逻辑箱子的同一页只创建一个 Inventory，所有查看者共享该实例；因此 Bukkit
+ *   会串行处理同一槽位的取放，不会让多个独立快照各自取出同一件物品。
  *   StorageIoService 每 tick 先吸收打开界面的编辑，再执行漏斗 I/O，最后回显最新数据，
  *   因而玩家、普通漏斗、漏斗矿车和比较器始终读取同一份逻辑库存。
  */
@@ -51,6 +54,12 @@ public final class ChestGui {
     // 双联时 view 的两个段 key 都指向同一批 holder，搬运 tick 用任一 key 都能定位对账。
     private final Map<String, Set<ChestGuiHolder>> openViews = new HashMap<>();
 
+    // 逻辑箱子 + 页码 -> 唯一 GUI。禁止为同一页创建多个可独立修改的库存快照，
+    // 否则两名玩家能在回写前分别拿走快照里的同一堆物品。
+    private final Map<ViewPageKey, ChestGuiHolder> pageViews = new HashMap<>();
+
+    private record ViewPageKey(String chestKey, int page) {}
+
     public ChestGui(PluginConfig config, VirtualStore store,
                     HologramManager holograms, ComparatorService comparators) {
         this.config = config;
@@ -63,6 +72,14 @@ public final class ChestGui {
     public void open(Player player, ChestView view, String chestKey, int page) {
         int maxPage = view.totalPages() - 1;
         page = Math.max(0, Math.min(page, maxPage));
+
+        ViewPageKey pageKey = new ViewPageKey(chestKey, page);
+        ChestGuiHolder existing = pageViews.get(pageKey);
+        if (existing != null) {
+            // 共享正在使用的 Inventory，保留尚未被 tick/关闭事件吸收的即时编辑。
+            player.openInventory(existing.getInventory());
+            return;
+        }
 
         ChestGuiHolder holder = new ChestGuiHolder(view, chestKey, page);
         Component title = PluginConfig.text(config.guiTitle
@@ -78,6 +95,7 @@ public final class ChestGui {
         renderComparatorButton(inv, view);
         renderHoloButton(inv, view);
         renderNameHoloButton(inv, view);
+        pageViews.put(pageKey, holder);
         registerView(holder);                    // 按 view 的每个段 key 注册, 让搬运 tick 能对账
         player.openInventory(inv);
     }
@@ -228,12 +246,23 @@ public final class ChestGui {
         open(player, view, holder.chestKey(), target);
     }
 
-    /** 关闭时回写 + 注销界面 + 刷新悬浮文字。 */
-    public void onClose(ChestGuiHolder holder) {
+    /** 关闭时回写；仅最后一名查看者离开时注销共享界面。 */
+    public void onClose(ChestGuiHolder holder, HumanEntity closingViewer) {
         writeBack(holder);
-        unregisterView(holder);
         holograms.syncFor(holder.view());
         comparators.refresh(holder.view());
+
+        // InventoryCloseEvent 触发阶段不同服务端实现可能仍把关闭者留在 viewers 中，
+        // 因此按身份排除 closingViewer，而不是依赖 viewers.size()。
+        Inventory inv = holder.getInventory();
+        if (inv != null) {
+            for (HumanEntity viewer : inv.getViewers()) {
+                if (!viewer.getUniqueId().equals(closingViewer.getUniqueId())) return;
+            }
+        }
+
+        unregisterView(holder);
+        pageViews.remove(new ViewPageKey(holder.chestKey(), holder.page()), holder);
     }
 
     /** 该箱子当前是否有人打开着界面（搬运 tick 用来决定是否需要对账）。 */

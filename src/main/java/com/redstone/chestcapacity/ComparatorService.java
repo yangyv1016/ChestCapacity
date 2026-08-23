@@ -65,7 +65,10 @@ public final class ComparatorService implements Listener {
         if (view == null) return;
 
         int output = outputSignal(comparatorBlock, data, view.comparatorSignal());
-        event.setNewCurrent(output);
+        // Paper 在比较器内部只把该事件当作开关门：开启分支要求恰好为 15，
+        // 关闭分支要求恰好为 0。模拟强度由方块实体承载，不能把 1..14 填到这里，
+        // 否则原版会中止 powered 状态切换。
+        event.setNewCurrent(output > 0 ? 15 : 0);
         activeComparators.add(VirtualStore.keyOf(comparatorBlock));
     }
 
@@ -104,12 +107,15 @@ public final class ComparatorService implements Listener {
      * 这里只扩展输入源解析，不接管普通容器的比较器行为。
      */
     private Block inputContainerOf(Block comparatorBlock, Comparator data) {
-        BlockFace backwards = data.getFacing().getOppositeFace();
-        Block direct = comparatorBlock.getRelative(backwards);
+        // Bukkit/Paper 的 Comparator facing 指向输入端（被读取的方块），输出端在反方向。
+        // 旧实现取了 opposite，实际检查的是输出端：正常摆放时永远找不到箱子；即便误判
+        // 到箱子，模拟信号也只会朝箱子方向输出，后方红石线仍为 0。
+        BlockFace input = data.getFacing();
+        Block direct = comparatorBlock.getRelative(input);
         if (resolver.resolve(direct) != null) return direct;
         if (!direct.getType().isOccluding()) return null;
 
-        Block behindSolid = direct.getRelative(backwards);
+        Block behindSolid = direct.getRelative(input);
         return resolver.resolve(behindSolid) != null ? behindSolid : null;
     }
 

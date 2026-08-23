@@ -4,7 +4,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 /**
- * 分页 GUI 的归属标记。一个 holder = 某个玩家正在查看某个（单箱或双联）大仓库的某一页。
+ * 分页 GUI 的归属标记。一个 holder = 某个（单箱或双联）大仓库的某一页；
+ * 多名玩家同时查看该页时共享同一个 holder 和 Inventory，避免独立快照重复取物。
  *
  * 作用：InventoryClickEvent / InventoryCloseEvent 拿到 holder 即可判定
  * “这是本插件的扩容箱界面”，并取回它对应的 ChestView 与当前页码，

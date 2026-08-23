@@ -161,7 +161,7 @@ public final class ChestListeners implements Listener {
     @EventHandler
     public void onClose(InventoryCloseEvent event) {
         if (event.getInventory().getHolder() instanceof ChestGuiHolder holder) {
-            gui.onClose(holder);
+            gui.onClose(holder, event.getPlayer());
         }
     }
 
