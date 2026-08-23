@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.5 - 2026-08-24
+
+### Security
+
+- Prevent concurrent viewers from withdrawing the same item from independent GUI snapshots by sharing one server-side inventory per chest page.
+- Keep a shared page registered until its final viewer closes it, preserving live edits during page changes and concurrent access.
+
+### Fixed
+
+- Correct comparator input-side detection for direct reads and reads through one solid block.
+- Use Paper's required `0`/`15` redstone event gate while keeping the actual analogue strength in the comparator block entity.
+- Propagate virtual comparator changes through the comparator's directional output path so downstream redstone receives the calculated signal.
+
+### Validation
+
+- Verify direct comparator output on Paper 1.21.11 build 132: one full stack produces comparator output 1 and downstream redstone power 1.
+
 ## 1.1.4 - 2026-08-03
 
 ### Performance
