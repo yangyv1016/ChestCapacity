@@ -12,6 +12,7 @@
 - Correct comparator input-side detection for direct reads and reads through one solid block.
 - Use Paper's required `0`/`15` redstone event gate while keeping the actual analogue strength in the comparator block entity.
 - Propagate virtual comparator changes through the comparator's directional output path so downstream redstone receives the calculated signal.
+- Prevent wind charges and overlapping explosion callbacks from dropping the expandable chest item more than once.
 
 ### Validation
 

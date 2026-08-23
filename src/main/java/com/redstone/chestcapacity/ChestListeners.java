@@ -189,10 +189,17 @@ public final class ChestListeners implements Listener {
         event.blockList().removeIf(this::dismantleIfMarked);
     }
 
-    /** 若是扩容箱则接管拆除并返回 true（从爆炸块列表中移除, 交我们掉落）。 */
+    /**
+     * 若是扩容箱则接管拆除并返回 true（从爆炸块列表中移除, 交我们掉落）。
+     *
+     * 爆炸事件可能在同一 tick 对同一位置产生重叠回调（例如风弹相关破坏）。仅从
+     * blockList 移除并不会删除世界中的方块，下一次回调仍会读到 pages 标记并再次
+     * 掉落扩容箱物品。因此首次接管后立即无掉落设为空气，使处理具备幂等性。
+     */
     private boolean dismantleIfMarked(Block block) {
         if (!isMarkedChest(block)) return false;
         dismantle(block, true);
+        block.setType(Material.AIR, false);
         return true;
     }
 
